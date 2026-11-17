@@ -1,0 +1,113 @@
+// Small API client. LIVE mode talks to /api/* (relative URLs); DEMO mode uses the mock layer.
+let demo = false;
+let demoReason = "";
+let remote = false;
+let mockModule = null;
+
+export const isDemo = () => demo;
+export const getDemoReason = () => demoReason;
+export const isRemote = () => remote;
+
+function toLogin(expired) {
+  location.replace(expired ? "/login.html?expired=1" : "/login.html");
+}
+
+async function loadMock() {
+  if (!mockModule) mockModule = await import("./mock.js");
+  return mockModule;
+}
+
+async function liveRequest(method, path, body) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  let res;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: body !== undefined ? { "Content-Type": "application/json", Accept: "application/json" } : { Accept: "application/json" },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: ctrl.signal,
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+  } catch (e) {
+    throw new Error(e && e.name === "AbortError" ? "The server took too long to answer." : "Can't reach the Kwant Trades server.");
+  } finally {
+    clearTimeout(timer);
+  }
+  let json = null;
+  try { json = await res.json(); } catch { json = null; }
+  if (res.status === 401 && path !== "/api/login") {
+    // Remote mode: the session ended (idle, expired, server restarted). Send the user to the sign-in screen.
+    toLogin(true);
+    return new Promise(() => {}); // the page is navigating away; never resolve
+  }
+  if (!res.ok) {
+    const msg = json && typeof json.error === "string" ? json.error : `Server error (${res.status})`;
+    throw new Error(msg);
+  }
+  if (json == null) throw new Error("The server sent an unreadable reply.");
+  return json;
+}
+
+export async function request(method, path, body) {
+  if (demo) {
+    const m = await loadMock();
+    return m.handle(method, path, body);
+  }
+  return liveRequest(method, path, body);
+}
+
+export const get = (path) => request("GET", path);
+export const post = (path, body = {}) => request("POST", path, body);
+
+/** Decide LIVE vs DEMO. Returns the first status payload. */
+export async function init() {
+  const params = new URLSearchParams(location.search);
+  if (params.get("demo") === "1") {
+    demo = true;
+    demoReason = "Opened with ?demo=1";
+  } else if (location.protocol === "file:") {
+    // Opened straight from disk: there is no server to probe (the probe would only log a failed request).
+    demo = true;
+    demoReason = "The page was opened as a local file, so built-in sample data is shown";
+  } else {
+    try {
+      // /api/session doubles as the "is there a server?" probe, so a static-only host costs exactly one failed request.
+      const sess = await liveRequest("GET", "/api/session");
+      remote = !!sess.remote;
+      if (remote && !sess.authenticated) { toLogin(false); return new Promise(() => {}); }
+      return await liveRequest("GET", "/api/status");
+    } catch (e) {
+      demo = true;
+      demoReason = "The Kwant Trades server didn't answer, so built-in sample data is shown";
+    }
+  }
+  return request("GET", "/api/status");
+}
+
+export async function signOut() {
+  try { await liveRequest("POST", "/api/logout", {}); } catch { /* already signed out */ }
+  toLogin(false);
+}
+
+export const api = {
+  status: () => get("/api/status"),
+  scan: (symbols = null) => post("/api/scan", { symbols }),
+  scanStatus: () => get("/api/scan/status"),
+  ideas: () => get("/api/ideas"),
+  signals: () => get("/api/signals"),
+  surface: (sym) => get(`/api/surface?symbol=${encodeURIComponent(sym)}`),
+  positions: () => get("/api/positions"),
+  closePosition: (id) => post(`/api/positions/${encodeURIComponent(id)}/close`, {}),
+  equity: () => get("/api/equity"),
+  decisions: (limit = 100) => get(`/api/decisions?limit=${limit}`),
+  news: (sym = "ALL") => get(`/api/news?symbol=${encodeURIComponent(sym)}`),
+  config: () => get("/api/config"),
+  saveConfig: (partial) => post("/api/config", partial),
+  start: (mode) => post("/api/session/start", { mode }),
+  stop: () => post("/api/session/stop", {}),
+  flatten: () => post("/api/session/flatten", {}),
+  backtest: (body) => post("/api/backtest", body),
+  backtestResult: () => get("/api/backtest/result"),
+};

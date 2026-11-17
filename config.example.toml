@@ -1,0 +1,61 @@
+# Kwant Trades configuration. Copy to config.toml and edit; anything you leave out keeps its default.
+# Secrets (API keys) NEVER go in this file: they go in .env (see .env.example).
+
+poll_seconds = 60                 # how often `run`/`shadow` repeat a full cycle during market hours
+
+[broker]
+mode = "paper"                    # "paper" (built-in simulator, default) | "alpaca_paper" | "alpaca_live"
+starting_equity = 10000.0         # paper account size in dollars
+commission_per_contract = 0.65    # per contract per leg
+slippage_frac_of_half_spread = 0.5  # paper fills are this fraction of the half-spread worse than mid
+db_path = "data/kwanttrades.sqlite"   # journal: orders, positions, equity, decisions
+
+[risk]
+max_loss_per_trade_pct = 0.01     # worst-case loss of one trade, as a fraction of equity
+daily_loss_limit_pct = 0.03       # kill switch: stop entering (and close, in paper modes) after this daily loss
+max_trades_per_day = 6
+max_open_positions = 5
+max_positions_per_symbol = 1
+max_portfolio_risk_pct = 0.15     # sum of worst-case losses of all open positions / equity
+min_reward_risk = 1.0             # debit structures: max profit / max loss
+min_credit_to_width = 0.25        # credit spreads: credit / spread width
+entry_window_start = "09:45"      # New York time; after the 15-minute opening range
+entry_window_end = "15:30"
+flatten_time = "15:55"            # intraday / expiring-today positions are closed by then
+kelly_fraction = 0.25             # fraction of the Kelly bet used for sizing
+max_contracts_per_trade = 10
+defined_risk_only = true          # never allow naked short options
+pdt_guard = true                  # US pattern-day-trader protection for accounts under $25,000
+
+[scan]
+universe = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "AMD"]
+directional_dte = [1, 14]         # expiry window for directional ideas (days)
+vol_dte = [14, 45]                # expiry window for volatility ideas (days)
+min_open_interest = 100
+min_volume = 1
+max_spread_pct = 0.12             # skip options whose bid/ask spread is wider than 12% of the mid
+min_bid = 0.05
+min_svi_zscore = 2.0
+min_vol_edge = 0.10               # forecast vs implied volatility gap needed to hold a volatility view
+min_direction = 0.25              # composite direction needed to hold a directional view
+min_expected_value = 5.0          # dollars per contract set, after costs
+min_score = 0.05
+max_ideas_per_symbol = 2
+
+[signals]
+opening_range_minutes = 15
+breakout_bar_minutes = 5
+min_relative_volume = 1.2
+
+[signals.weights]
+orb = 0.40
+vwap = 0.15
+gap = 0.05
+news = 0.25
+regime = 0.15
+
+[sentiment]
+enabled = true                    # score news headlines with the built-in finance word list
+max_headlines_per_symbol = 12
+lookback_hours = 24
+half_life_hours = 6.0

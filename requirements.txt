@@ -1,0 +1,13 @@
+numpy
+scipy
+pandas
+yfinance
+
+# Optional extras (uncomment what you want):
+# pytest                       # run the test suite
+# alpaca-py                    # Alpaca paper/live broker
+# openbb-core                  # OpenBB + CBOE option chains (cross-checked data)
+# openbb-cboe
+# openbb-derivatives
+# fastapi                      # local web dashboard: python -m kwanttrades web
+# uvicorn
