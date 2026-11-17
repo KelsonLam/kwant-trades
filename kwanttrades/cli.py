@@ -391,6 +391,8 @@ def cmd_web(args, cfg: Config, engine_factory, news_factory) -> int:
         argv += ["--db", args.db]
     if getattr(args, "remote", False):
         argv.append("--remote")
+    if getattr(args, "tailscale", False):
+        argv.append("--tailscale")
     if getattr(args, "host", None):
         argv += ["--host", args.host]
     if getattr(args, "behind_proxy", False):
@@ -473,6 +475,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-browser", action="store_true", help="do not open the default browser")
     s.add_argument("--remote", action="store_true",
                    help="opt-in: password login (KWANT_WEB_PASSWORD in .env) and listen on your network, e.g. for your phone")
+    s.add_argument("--tailscale", action="store_true",
+                   help="password login, reachable ONLY through your Tailscale network (recommended for phone access)")
     s.add_argument("--host", choices=["127.0.0.1", "0.0.0.0"], help="bind address (0.0.0.0 needs --remote)")
     s.add_argument("--behind-proxy", action="store_true", help="trust X-Forwarded-* headers from a reverse proxy (remote mode)")
     s.add_argument("--allowed-host", action="append", default=[], metavar="NAME",

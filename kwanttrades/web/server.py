@@ -393,10 +393,10 @@ class DashboardServer(ThreadingHTTPServer):
 
     def __init__(self, port: int, app: WebApp, *, host: str = BIND_HOST, auth: "authmod.AuthManager | None" = None,
                  allowed_hosts: tuple[str, ...] = (), behind_proxy: bool = False):
-        if host not in ("127.0.0.1", "0.0.0.0"):
-            raise ValueError("host must be exactly 127.0.0.1 or 0.0.0.0")
-        if host == "0.0.0.0" and auth is None:
-            raise ValueError("binding to all interfaces requires remote mode (authentication)")
+        if host not in ("127.0.0.1", "0.0.0.0") and not is_tailscale_ip(host):
+            raise ValueError("host must be 127.0.0.1, 0.0.0.0 or this machine's Tailscale address")
+        if host != "127.0.0.1" and auth is None:
+            raise ValueError("listening beyond this computer requires remote mode (authentication)")
         self.app = app
         self.auth = auth
         self.behind_proxy = behind_proxy
@@ -445,7 +445,30 @@ def build_app(args: argparse.Namespace) -> WebApp:
     return WebApp(cfg, provider, provider_name=name, news=news, clock=clock, config_path=args.config)
 
 
+def is_tailscale_ip(host: str) -> bool:
+    """True for an IPv4 address in Tailscale's range (100.64.0.0/10)."""
+    import ipaddress
+
+    try:
+        return ipaddress.ip_address(host) in ipaddress.ip_network("100.64.0.0/10")
+    except ValueError:
+        return False
+
+
+def tailscale_ipv4() -> str | None:
+    """This machine's Tailscale address, or None when Tailscale is not connected."""
+    return next((ip for ip in authmod.lan_ipv4s() if is_tailscale_ip(ip)), None)
+
+
 def remote_banner(port: int, host: str) -> str:
+    if is_tailscale_ip(host):
+        return "\n".join([
+            "=" * 72, "Kwant Trades REMOTE mode is ON (password required), Tailscale only.", "",
+            "Open this on a phone or computer signed in to your Tailscale network:",
+            f"    http://{host}:{port}", "",
+            "The dashboard listens on the Tailscale address only: other devices on your Wi-Fi or local",
+            "network cannot reach it, and Tailscale encrypts the connection. This PC must stay on and awake.",
+            "=" * 72])
     ips = authmod.lan_ipv4s()
     urls = [f"http://{ip}:{port}" for ip in ips] if host == "0.0.0.0" else [f"http://127.0.0.1:{port}"]
     lines = ["=" * 72, "Kwant Trades REMOTE mode is ON (password required).", "",
@@ -478,6 +501,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="opt-in: require a password (KWANT_WEB_PASSWORD in .env) and listen on all network interfaces")
     ap.add_argument("--host", choices=["127.0.0.1", "0.0.0.0"],
                     help="bind address: exactly 127.0.0.1 or 0.0.0.0 (0.0.0.0 needs --remote; --remote implies it)")
+    ap.add_argument("--tailscale", action="store_true",
+                    help="remote mode reachable ONLY through Tailscale: listen on this machine's Tailscale address "
+                         "instead of every network (implies --remote)")
     ap.add_argument("--behind-proxy", action="store_true",
                     help="trust X-Forwarded-For / X-Forwarded-Proto from a reverse proxy (remote mode only)")
     ap.add_argument("--allowed-host", action="append", default=[], metavar="NAME",
@@ -486,6 +512,17 @@ def main(argv: list[str] | None = None) -> int:
     if not 0 <= args.port <= 65535:
         print("error: --port must be between 0 and 65535", file=sys.stderr)
         return 2
+    if args.tailscale:
+        if args.host:
+            print("error: use either --tailscale or --host, not both", file=sys.stderr)
+            return 2
+        args.remote = True
+        ts_ip = tailscale_ipv4()
+        if ts_ip is None:
+            print("error: Tailscale is not connected on this computer. Open Tailscale, sign in, and try again.",
+                  file=sys.stderr)
+            return 2
+        args.host = ts_ip
     host = args.host or ("0.0.0.0" if args.remote else BIND_HOST)
     if not args.remote and (host != BIND_HOST or args.behind_proxy or args.allowed_host):
         print("error: --host 0.0.0.0, --behind-proxy and --allowed-host need --remote (a password is mandatory "
