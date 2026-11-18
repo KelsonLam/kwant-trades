@@ -97,10 +97,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        if self.command in ("POST", "PUT", "PATCH", "DELETE") and not getattr(self, "_body_read", False):
-            # An unread request body would be parsed as the next request on a keep-alive connection.
-            self.close_connection = True
-            self.send_header("Connection", "close")
+        # One request per connection. Idle keep-alive sockets that the server later drops are reported by
+        # mobile Safari as failed requests ("network connection was lost") instead of being retried, and an
+        # unread request body would otherwise be parsed as the next request on a reused connection.
+        self.close_connection = True
+        self.send_header("Connection", "close")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Security-Policy", CSP)
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -412,6 +413,9 @@ class DashboardServer(ThreadingHTTPServer):
         now = time.monotonic()
         if now - self._names_at > 30.0:
             self._own = {f"{n}:{port}" for n in ["localhost", "127.0.0.1", *authmod.machine_names(), *authmod.lan_ipv4s()]}
+            bound = self.server_address[0]
+            if bound not in ("0.0.0.0", ""):
+                self._own.add(f"{bound}:{port}")  # the address we listen on is always a valid Host
             self._names_at = now
         if host in self._own:
             return True
