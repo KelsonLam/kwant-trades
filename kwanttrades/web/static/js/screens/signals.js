@@ -1,9 +1,9 @@
-import { h, panel, term, stagger, signed } from "../dom.js";
+import { h, panel, term, stagger, signed, firstTime } from "../dom.js";
 import { store } from "../store.js";
 import { price, pct, signedPct, isNum, timeNY, num } from "../format.js";
 import { sparkline, orbChart } from "../charts.js";
 import { COMPONENTS, ORB_STATES } from "../glossary.js";
-import { delayNote } from "../shared.js";
+import { quoteNote } from "../shared.js";
 
 export function directionBar(dir, conf, { size = "" } = {}) {
   const d = isNum(dir) ? Math.max(-1, Math.min(1, dir)) : 0;
@@ -39,7 +39,7 @@ function volView(v) {
     h("p", { class: "small" }, h("strong", null, verdict), " · ", term("vol_edge", "vol edge"), " ", h("span", { class: "num" }, signedPct(e, 0))));
 }
 
-function symbolCard(s, first) {
+function symbolCard(s) {
   const orb = s.orb;
   const orbState = orb?.state ? ORB_STATES[orb.state] || orb.state : "No opening range yet";
   return h("article", { class: "card sig" },
@@ -58,23 +58,24 @@ function symbolCard(s, first) {
       h("div", null, h("h4", null, "Volatility view"), volView(s.vol))));
 }
 
+export const meta = { title: "Market signals" };
+
 export function render(root) {
-  const head = h("section", { class: "panel span-3 toolbar" },
-    h("h1", { class: "screen-title" }, "Signals"),
-    h("p", { class: "muted" }, "What each day-trading signal says about direction, per symbol. The composite blends them; confidence says how much to trust it."),
-    delayNote());
+  const first = firstTime("signals");
+  let staged = false;
   const list = panel({
-    title: "Symbols", cls: "span-3 bare", store, key: "signals",
-    render: (d, { first }) => {
+    title: "Symbols", id: "signals-list", headless: true, store, key: "signals",
+    render: (d) => {
       const syms = d?.symbols || [];
       if (!syms.length) return null;
-      const grid = h("div", { class: "card-grid two" }, syms.map((s) => symbolCard(s, first)));
-      if (first) stagger([...grid.children], 0, 40);
-      return h("div", null, h("p", { class: "muted small list-meta" }, d.asof ? `As of ${timeNY(d.asof)} NY` : ""), grid);
+      const grid = h("div", { class: "card-stack" }, syms.map((s) => symbolCard(s)));
+      if (first && !staged) stagger([...grid.children], 0, 50);
+      staged = true;
+      return h("div", null, h("p", { class: "list-meta" }, d.asof ? `As of ${timeNY(d.asof)} NY` : ""), grid);
     },
     empty: { title: "No signals yet", hint: "Signals appear after the first scan or session step." },
   });
-  const grid = h("div", { class: "grid" }, head, list);
-  stagger([...grid.children], 0, 60);
-  root.append(grid);
+  root.append(
+    h("p", { class: "lead" }, "What each day-trading signal says about direction, per symbol. The composite blends them; confidence says how much to trust it."),
+    quoteNote(), list);
 }

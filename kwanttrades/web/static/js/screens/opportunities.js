@@ -1,10 +1,12 @@
-import { h, panel, stagger, emptyState } from "../dom.js";
+// Ideas: the scan results as a clean list. Tap a row for the full details in a bottom sheet.
+import { h, panel, stagger, emptyState, firstTime } from "../dom.js";
 import { store } from "../store.js";
-import { timeNY } from "../format.js";
-import { strategyInfo } from "../glossary.js";
-import { ideaCard, scanControl, emptyIdeas, delayNote } from "../shared.js";
+import { segmented, group } from "../ui.js";
+import { ideaRow, scanButton, scanStatusLine, quoteNote, emptyIdeas } from "../shared.js";
 
-const filt = { symbol: "", strategy: "", passed: false, sort: "score" };
+export const meta = { title: "Ideas" };
+
+const filt = { symbol: "", passed: false, sort: "score" };
 
 const SORTS = {
   score: { label: "Best ranked", fn: (a, b) => (b.score ?? -1e9) - (a.score ?? -1e9) },
@@ -13,60 +15,41 @@ const SORTS = {
   risk: { label: "Smallest max loss", fn: (a, b) => (a.max_loss ?? 1e12) - (b.max_loss ?? 1e12) },
 };
 
-export function render(root, params) {
-  if (params[0]) filt.symbol = String(params[0]).toUpperCase();
-  const symSel = h("select", { id: "f-sym" });
-  const stratSel = h("select", { id: "f-strat" });
-  const sortSel = h("select", { id: "f-sort" }, Object.entries(SORTS).map(([k, v]) => h("option", { value: k }, v.label)));
-  const passed = h("input", { type: "checkbox", id: "f-pass" });
-  sortSel.value = filt.sort; passed.checked = filt.passed;
-  const bar = h("div", { class: "filters", role: "group", "aria-label": "Filter ideas" },
-    h("label", { for: "f-sym" }, "Symbol", symSel),
-    h("label", { for: "f-strat" }, "Strategy", stratSel),
-    h("label", { for: "f-sort" }, "Sort by", sortSel),
-    h("label", { class: "check", for: "f-pass" }, passed, h("span", null, "Only ideas the risk gate allowed")));
+export function render(root, params, ctx) {
+  filt.symbol = params[0] ? String(params[0]).toUpperCase() : "";
+  ctx.trail.append(scanButton());
 
-  let lastData = null;
-  const list = panel({
-    title: "Trade ideas", cls: "span-3 bare", store, key: "ideas",
-    render: (d, { first }) => {
-      lastData = d;
+  let list;
+  const redraw = () => list && list._redraw();
+  const seg = segmented({ options: [["all", "All"], ["allowed", "Allowed"]], value: filt.passed ? "allowed" : "all", label: "Show ideas",
+    onChange: (v) => { filt.passed = v === "allowed"; redraw(); } });
+  const sortSel = h("select", { id: "f-sort", "aria-label": "Sort ideas by" }, Object.entries(SORTS).map(([k, v]) => h("option", { value: k }, v.label)));
+  sortSel.value = filt.sort;
+  sortSel.addEventListener("change", () => { filt.sort = sortSel.value; redraw(); });
+
+  const first = firstTime("ideas");
+  let staged = false;
+  list = panel({
+    title: "Trade ideas", id: "ideas-list", headless: true, store, key: "ideas",
+    render: (d) => {
       const ideas = d?.ideas || [];
-      fillOptions(symSel, [...new Set(ideas.map((i) => i.symbol).filter(Boolean))].sort(), filt.symbol, "All symbols", (x) => x);
-      fillOptions(stratSel, [...new Set(ideas.map((i) => i.strategy).filter(Boolean))], filt.strategy, "All strategies", (x) => strategyInfo(x).label);
       if (!ideas.length) return null;
-      const shown = ideas.filter((i) => (!filt.symbol || i.symbol === filt.symbol) && (!filt.strategy || i.strategy === filt.strategy) && (!filt.passed || i.decision?.passed))
-        .sort(SORTS[filt.sort].fn);
+      const shown = ideas.filter((i) => (!filt.symbol || i.symbol === filt.symbol) && (!filt.passed || i.decision?.passed)).sort(SORTS[filt.sort].fn);
       const nPass = ideas.filter((i) => i.decision?.passed).length;
-      const head = h("p", { class: "muted small list-meta" }, `${shown.length} of ${ideas.length} ideas shown · ${nPass} allowed by the risk gate`, d.asof ? ` · scan at ${timeNY(d.asof)} NY` : "");
-      if (!shown.length) return h("div", null, head, emptyState({ title: "No ideas match these filters", hint: "Clear a filter to see more." }));
-      const grid = h("div", { class: "card-grid two" }, shown.map((i, k) => ideaCard(i, { rank: k + 1, animate: first })));
-      if (first) stagger([...grid.children], 0, 70);
-      return h("div", null, head, grid);
+      const meta2 = h("div", { class: "list-meta" },
+        h("span", null, `${shown.length} of ${ideas.length} ideas · ${nPass} allowed`),
+        filt.symbol ? h("button", { type: "button", class: "chip-btn", onclick: () => { filt.symbol = ""; history.replaceState(null, "", "#/ideas"); redraw(); } }, `${filt.symbol} `, h("span", { "aria-hidden": "true" }, "✕"), h("span", { class: "sr-only" }, "Clear symbol filter")) : null);
+      if (!shown.length) return h("div", null, meta2, emptyState({ title: filt.passed ? "Nothing was allowed by the risk gate" : "No ideas match", hint: filt.passed ? "Switch to All to see why ideas were blocked." : "Clear the symbol filter to see more." }));
+      const g = group(shown.map((i, k) => ideaRow(i)), { label: "Trade ideas" });
+      if (first && !staged) stagger([...g.querySelectorAll(".row")], 0, 40);
+      staged = true;
+      return h("div", null, meta2, g);
     },
     empty: emptyIdeas,
   });
-  const redraw = () => list._redraw();
-  symSel.addEventListener("change", () => { filt.symbol = symSel.value; redraw(); });
-  stratSel.addEventListener("change", () => { filt.strategy = stratSel.value; redraw(); });
-  sortSel.addEventListener("change", () => { filt.sort = sortSel.value; redraw(); });
-  passed.addEventListener("change", () => { filt.passed = passed.checked; redraw(); });
 
-  const top = h("section", { class: "panel span-3 toolbar" },
-    h("div", { class: "toolbar-row" },
-      h("div", null, h("h1", { class: "screen-title" }, "Opportunities"), h("p", { class: "muted" }, "Ranked trade ideas from the latest scan. Every idea has a known worst case.")),
-      scanControl()),
-    bar, delayNote());
-  const grid = h("div", { class: "grid" }, top, list);
-  stagger([...grid.children], 0, 60);
-  root.append(grid);
-}
-
-function fillOptions(sel, values, current, allLabel, labelOf) {
-  const want = ["", ...values];
-  const have = [...sel.options].map((o) => o.value);
-  if (want.join("|") === have.join("|")) { sel.value = current; return; }
-  sel.replaceChildren(h("option", { value: "" }, allLabel), ...values.map((v) => h("option", { value: v }, labelOf(v))));
-  if (current && !values.includes(current)) sel.appendChild(h("option", { value: current }, labelOf(current)));
-  sel.value = current;
+  root.append(
+    h("div", { class: "controls" }, seg, h("label", { class: "sort-pill", for: "f-sort" }, h("span", null, "Sort"), sortSel)),
+    scanStatusLine(), quoteNote(), list,
+    h("p", { class: "footer-note" }, "Ideas are model estimates. Every idea has a known worst case."));
 }

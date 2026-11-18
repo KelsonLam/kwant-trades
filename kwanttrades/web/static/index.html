@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f1215">
+  <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,22 +13,20 @@
   <meta name="color-scheme" content="dark light">
   <meta name="referrer" content="no-referrer">
   <title>Kwant Trades</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1215'/%3E%3Cpath d='M5 23 L13 15 L18 19 L27 9' fill='none' stroke='%23d5f25e' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='27' cy='9' r='2.6' fill='%23d5f25e'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23000000'/%3E%3Cpath d='M5 23 L13 15 L18 19 L27 9' fill='none' stroke='%23d5f25e' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='27' cy='9' r='2.6' fill='%23d5f25e'/%3E%3C/svg%3E">
   <script src="js/theme.js"></script>
   <link rel="stylesheet" href="css/app.css">
   <script src="js/pwa.js"></script>
   <script type="module" src="js/main.js"></script>
 </head>
 <body>
-  <a class="skip" href="#main">Skip to content</a>
+  <a class="skip" href="#stage">Skip to content</a>
   <div id="app">
-    <main id="main" tabindex="-1"></main>
-    <footer class="foot" role="contentinfo">
-      <p>Model estimates, not guarantees. Paper results do not predict live results.</p>
-    </footer>
+    <div id="banners" class="banners"></div>
+    <main id="stage" class="stage"></main>
   </div>
   <div id="toasts" class="toasts" aria-live="polite"></div>
   <div id="live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
-  <noscript><p style="padding:24px">Kwant Trades's dashboard needs JavaScript.</p></noscript>
+  <noscript><p class="noscript">Kwant Trades's dashboard needs JavaScript.</p></noscript>
 </body>
 </html>

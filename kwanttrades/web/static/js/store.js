@@ -1,6 +1,9 @@
 // Tiny store + poller. Each key has a fetcher and a polling interval.
-// Polling pauses while the tab is hidden; fetch failures are stored, never thrown.
+// Polling pauses while the tab is hidden; fetch failures are stored, never thrown, and the last good data is kept.
 const entries = new Map(); // key -> {fetch, interval, always, state, subs:Set, inflight, lastTry}
+
+// Connection health, driven by the always-polled "status" resource.
+let failingSince = 0;
 
 function entry(key) {
   if (!entries.has(key)) entries.set(key, { fetch: null, interval: 0, always: false, state: null, subs: new Set(), inflight: null, lastTry: 0 });
@@ -24,7 +27,8 @@ export const store = {
   data(key) { const s = entry(key).state; return s ? s.data : null; },
   set(key, data) {
     const e = entry(key);
-    e.state = { data, error: null, at: Date.now() };
+    e.state = { data, error: null, errorKind: null, at: Date.now() };
+    if (key === "status") failingSince = 0;
     emit(key);
   },
   subscribe(key, fn) {
@@ -33,7 +37,7 @@ export const store = {
     if (!e.state && e.fetch && !e.inflight) store.refresh(key);
     return () => e.subs.delete(fn);
   },
-  /** Fetch now. Resolves to the data, or null on failure (error stored in state). */
+  /** Fetch now. Resolves to the data, or null on failure (error stored in state, last good data kept). */
   refresh(key) {
     const e = entry(key);
     if (!e.fetch) return Promise.resolve(null);
@@ -42,10 +46,12 @@ export const store = {
     e.inflight = (async () => {
       try {
         const data = await e.fetch();
-        e.state = { data, error: null, at: Date.now() };
+        e.state = { data, error: null, errorKind: null, at: Date.now() };
+        if (key === "status") failingSince = 0;
       } catch (err) {
         const msg = (err && err.message) || "Unknown error";
-        e.state = { data: e.state ? e.state.data : null, error: msg, at: Date.now() };
+        e.state = { data: e.state ? e.state.data : null, error: msg, errorKind: (err && err.kind) || "server", at: Date.now() };
+        if (key === "status" && !failingSince) failingSince = Date.now();
       } finally {
         e.inflight = null;
       }
@@ -55,6 +61,8 @@ export const store = {
     return e.inflight;
   },
   refreshMany(keys) { return Promise.all(keys.map((k) => store.refresh(k))); },
+  /** Milliseconds the connection has been failing (0 when healthy). */
+  failingFor() { return failingSince ? Date.now() - failingSince : 0; },
 };
 
 let timer = 0;

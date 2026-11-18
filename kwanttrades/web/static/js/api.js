@@ -1,4 +1,7 @@
 // Small API client. LIVE mode talks to /api/* (relative URLs); DEMO mode uses the mock layer.
+// Resilience: a GET that fails at the network level (dropped connection, timeout) is retried twice with a short
+// backoff before an error is reported. HTTP errors (4xx/5xx) are never retried. POSTs are never retried because a
+// timed-out POST may already have been applied by the server.
 let demo = false;
 let demoReason = "";
 let remote = false;
@@ -7,6 +10,10 @@ let mockModule = null;
 export const isDemo = () => demo;
 export const getDemoReason = () => demoReason;
 export const isRemote = () => remote;
+
+const RETRY_DELAYS = [300, 900];
+const TIMEOUT_MS = 10000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function toLogin(expired) {
   location.replace(expired ? "/login.html?expired=1" : "/login.html");
@@ -17,9 +24,15 @@ async function loadMock() {
   return mockModule;
 }
 
-async function liveRequest(method, path, body) {
+function apiError(message, kind) {
+  const e = new Error(message);
+  e.kind = kind; // "network" = couldn't reach the server; "server" = it answered with an error
+  return e;
+}
+
+async function attempt(method, path, body) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 10000);
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   let res;
   try {
     res = await fetch(path, {
@@ -31,7 +44,7 @@ async function liveRequest(method, path, body) {
       cache: "no-store",
     });
   } catch (e) {
-    throw new Error(e && e.name === "AbortError" ? "The server took too long to answer." : "Can't reach the Kwant Trades server.");
+    throw apiError(e && e.name === "AbortError" ? "The server took too long to answer." : "Can't reach the Kwant Trades server.", "network");
   } finally {
     clearTimeout(timer);
   }
@@ -44,10 +57,22 @@ async function liveRequest(method, path, body) {
   }
   if (!res.ok) {
     const msg = json && typeof json.error === "string" ? json.error : `Server error (${res.status})`;
-    throw new Error(msg);
+    throw apiError(msg, "server");
   }
-  if (json == null) throw new Error("The server sent an unreadable reply.");
+  if (json == null) throw apiError("The server sent an unreadable reply.", "server");
   return json;
+}
+
+async function liveRequest(method, path, body) {
+  const retries = method === "GET" ? RETRY_DELAYS.length : 0;
+  for (let i = 0; ; i++) {
+    try {
+      return await attempt(method, path, body);
+    } catch (e) {
+      if (e.kind !== "network" || i >= retries) throw e;
+      await sleep(RETRY_DELAYS[i]);
+    }
+  }
 }
 
 export async function request(method, path, body) {
@@ -73,7 +98,7 @@ export async function init() {
     demoReason = "The page was opened as a local file, so built-in sample data is shown";
   } else {
     try {
-      // /api/session doubles as the "is there a server?" probe, so a static-only host costs exactly one failed request.
+      // /api/session doubles as the "is there a server?" probe, so a static-only host costs one failed (retried) request.
       const sess = await liveRequest("GET", "/api/session");
       remote = !!sess.remote;
       if (remote && !sess.authenticated) { toLogin(false); return new Promise(() => {}); }

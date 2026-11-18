@@ -1,9 +1,11 @@
-import { h, panel, term, stagger, signed, toast, announce } from "../dom.js";
+import { h, panel, term, stagger, signed, toast, announce, firstTime } from "../dom.js";
 import { store } from "../store.js";
 import { api, isDemo } from "../api.js";
 import { money, signedMoney, pct, num, isNum, dateNY, timeNY } from "../format.js";
 import { lineChart, pnlBars } from "../charts.js";
 import { strategyInfo, exitLabel } from "../glossary.js";
+
+export const meta = { title: "Backtest" };
 
 const form = { symbols: null, days: 5, source: "real_bars" };
 
@@ -65,7 +67,7 @@ export function render(root) {
   validate();
 
   const results = panel({
-    title: "Results", cls: "span-2", store, key: "backtest",
+    title: "Results", id: "bt-results", store, key: "backtest",
     render: (d, { first }) => {
       if (!d || d.state === "idle") return null;
       const out = h("div", { class: "bt-results" });
@@ -95,7 +97,7 @@ export function render(root) {
       const eq = (d.equity || []).map((p) => ({ t: p.t, v: p.equity }));
       if (eq.length >= 2) {
         out.appendChild(h("h3", null, "Simulated account value"));
-        out.appendChild(lineChart(eq, { height: 200, baseline: eq[0].v, baselineLabel: "Start", label: "Backtest equity curve", animate: first }));
+        out.appendChild(lineChart(eq, { height: 190, baseline: eq[0].v, baselineLabel: "Start", label: "Backtest equity curve", animate: first }));
       }
       if ((d.by_strategy || []).length || (d.by_exit || []).length) {
         out.appendChild(h("div", { class: "two-col" },
@@ -105,22 +107,23 @@ export function render(root) {
       const trades = d.trades || [];
       if (trades.length) {
         out.appendChild(h("h3", null, `Trades (${trades.length})`));
-        out.appendChild(h("div", { class: "tbl-wrap tall" }, h("table", { class: "tbl compact" },
+        out.appendChild(h("div", { class: "card tbl-card" }, h("div", { class: "tbl-wrap tall" }, h("table", { class: "tbl compact" },
           h("caption", { class: "sr-only" }, "Backtest trades"),
           h("thead", null, h("tr", null, ...["Opened", "Symbol", "Trade", "Exit"].map((x) => h("th", { scope: "col" }, x)), h("th", { scope: "col", class: "num" }, "Result"))),
           h("tbody", null, trades.slice().reverse().slice(0, 200).map((t) => h("tr", null,
             h("td", { class: "num" }, dateNY(t.opened), " ", timeNY(t.opened)), h("td", null, h("strong", { class: "sym" }, t.symbol ?? "—")),
             h("td", { class: "small" }, strategyInfo(t.strategy).label), h("td", { class: "small" }, exitLabel(t.exit_reason)),
-            h("td", { class: "num" }, signed(signedMoney(t.pnl), t.pnl))))))));
+            h("td", { class: "num" }, signed(signedMoney(t.pnl), t.pnl)))))))));
       }
       return out;
     },
     empty: { title: "No backtest yet", hint: "Pick symbols and days, then Run backtest. Results show here with their caveats." },
   });
 
-  const head = h("section", { class: "panel span-3 toolbar" }, h("h1", { class: "screen-title" }, "Backtest"),
-    h("p", { class: "muted" }, "Test the rules on past days. ", h("strong", null, "Backtests are simulations: they do not predict paper or live results."), isDemo() ? " In demo mode the results below are generated sample data." : ""));
-  const grid = h("div", { class: "grid" }, head, formPanel, results);
-  stagger([...grid.children], 0, 60);
-  root.append(grid);
+  const warn = h("div", { class: "caveats always", role: "note" },
+    h("h3", null, h("span", { "aria-hidden": "true" }, "⚠ "), "Backtests are simulations"),
+    h("p", null, "They do not predict paper or live results. Option prices are modelled, not real quotes.", isDemo() ? " In demo mode the results below are generated sample data." : ""));
+  const kids = [warn, formPanel, results];
+  if (firstTime("backtest")) stagger(kids, 0, 60);
+  root.append(...kids);
 }

@@ -1,9 +1,12 @@
-import { h, panel, term, stagger, toast, announce, confirmDialog } from "../dom.js";
+import { h, panel, term, stagger, toast, announce, confirmDialog, firstTime } from "../dom.js";
 import { store } from "../store.js";
-import { api, isRemote, signOut } from "../api.js";
+import { api } from "../api.js";
 import { isNum } from "../format.js";
 import { MODES } from "../glossary.js";
 import { modeBadge } from "../shared.js";
+import { group, row } from "../ui.js";
+
+export const meta = { title: "Settings" };
 
 // Field metadata: kind = pct (stored as decimal, shown as %), int, num, money, time, bool, pair, list
 const FIELDS = {
@@ -108,14 +111,16 @@ function configForm(cfg) {
   const sections = Object.entries(FIELDS).map(([sec, fields]) => {
     const vals = cfg?.[sec] || {};
     const items = fields.filter((f) => f[0] in vals).map((f) => { const c = inputFor(sec, f, vals[f[0]]); c.sec = sec; c.key = f[0]; c.orig = vals[f[0]]; controls.push(c); return c.el; });
-    return h("fieldset", { class: "cfg-sec" }, h("legend", null, sec === "risk" ? "Risk limits" : "Scan thresholds"),
-      h("p", { class: "help" }, sec === "risk" ? "Hard limits the risk gate enforces before any order." : "What counts as a worthwhile idea."),
-      h("div", { class: "fields" }, items));
+    return h("div", { class: "group-wrap cfg-sec" }, h("h3", { class: "group-head" }, sec === "risk" ? "Risk limits" : "Scan thresholds"),
+      h("div", { class: "group fields" }, items),
+      h("p", { class: "group-foot" }, sec === "risk" ? "Hard limits the risk gate enforces before any order." : "What counts as a worthwhile idea."));
   });
   const status = h("p", { class: "small muted", "aria-live": "polite" });
   const save = h("button", { type: "submit", class: "btn primary" }, "Save changes");
   const reset = h("button", { type: "button", class: "btn ghost" }, "Undo edits");
-  const form = h("form", { class: "cfg-form", novalidate: true }, ...sections, h("div", { class: "form-actions sticky" }, save, reset, status));
+  const bar = h("div", { class: "form-actions sticky", hidden: true }, save, reset, status);
+  let saving = false;
+  const form = h("form", { class: "cfg-form", novalidate: true }, ...sections, bar);
   const collect = () => {
     const changed = {}; let bad = 0;
     for (const c of controls) {
@@ -129,6 +134,7 @@ function configForm(cfg) {
     const n = Object.values(changed).reduce((a, o) => a + Object.keys(o).length, 0);
     status.textContent = bad ? `${bad} field${bad > 1 ? "s need" : " needs"} fixing.` : n ? `${n} unsaved change${n > 1 ? "s" : ""}.` : "No changes.";
     save.disabled = !!bad || !n;
+    bar.hidden = !bad && !n && !saving;
     return { changed, bad, n };
   };
   form.addEventListener("input", collect);
@@ -138,7 +144,7 @@ function configForm(cfg) {
     e.preventDefault();
     const { changed, bad, n } = collect();
     if (bad || !n) return;
-    save.disabled = true; save.textContent = "Saving…";
+    saving = true; save.disabled = true; save.textContent = "Saving…";
     try {
       const saved = await api.saveConfig(changed);
       if (saved && typeof saved === "object") store.set("config", saved); else store.refresh("config");
@@ -148,14 +154,14 @@ function configForm(cfg) {
       toast(`Couldn't save: ${ex.message}`, "error");
       save.disabled = false;
     }
-    save.textContent = "Save changes";
+    save.textContent = "Save changes"; saving = false; collect();
   });
   collect();
   return form;
 }
 
 function sessionPanel() {
-  const el = h("section", { class: "panel cu session", "aria-label": "Session controls" });
+  const el = h("section", { class: "cu session", "aria-label": "Session controls" });
   const draw = () => {
     const st = store.data("status");
     const busy = el.dataset.busy === "1";
@@ -176,22 +182,24 @@ function sessionPanel() {
       el.dataset.busy = "0"; store.refresh("status");
     };
     const keys = !!st?.alpaca_keys_present;
-    const btn = (mode, text, sub, disabled, hint) => h("div", { class: "sess-opt" },
-      h("button", { type: "button", class: `btn ${mode === "paper" ? "primary" : ""} sess-btn`, disabled: busy || disabled || (st?.running && st.mode === mode), onclick: start(mode), "aria-describedby": `sess-${mode}` },
-        text, st?.running && st.mode === mode ? h("span", { class: "pill" }, "running") : null),
-      h("p", { class: "help", id: `sess-${mode}` }, sub, hint ? h("span", { class: "hint" }, " " + hint) : null));
+    const opt = (mode, text, sub, disabled, hint) => {
+      const isRun = !!(st?.running && st.mode === mode);
+      return row({
+        title: text, sub: h("span", null, sub, hint ? h("span", { class: "hint" }, " " + hint) : null),
+        trailing: isRun ? h("span", { class: "pill on" }, "Running")
+          : h("button", { type: "button", class: `btn small ${mode === "paper" ? "primary" : ""}`, disabled: busy || disabled, onclick: start(mode), "aria-label": `${text}` }, "Start"),
+      });
+    };
     el.replaceChildren(
-      h("header", { class: "panel-head" }, h("h2", null, "Session"), st ? modeBadge(st) : null),
-      h("div", { class: "sess-grid" },
-        btn("shadow", "Start Shadow", "Runs everything and records what it would trade. Sends no orders.", false),
-        btn("paper", "Start Paper", "Trades practice money in the built-in simulator.", false),
-        btn("alpaca_paper", "Start Alpaca Paper", "Sends orders to your Alpaca practice account.", !keys, keys ? "" : "Unavailable: no Alpaca keys found in the .env file on this computer.")),
-      h("div", { class: "sess-stop" },
-        h("button", { type: "button", class: "btn danger-ghost", disabled: busy || !st?.running, onclick: stop }, "Stop session"),
-        h("p", { class: "help" }, "Stops new trades. Open positions stay open (use Positions → Flatten all to close them).")),
-      h("div", { class: "live-note", role: "note" },
-        h("strong", null, "Live trading (real money) cannot be started from this page."),
-        " It can only be enabled by the owner from the command line, with an explicit safety setting. API keys live in the .env file on this computer; they are never shown or entered here."));
+      group([
+        opt("shadow", "Shadow", "Runs everything and records what it would trade. Sends no orders.", false),
+        opt("paper", "Paper", "Trades practice money in the built-in simulator.", false),
+        opt("alpaca_paper", "Alpaca Paper", "Sends orders to your Alpaca practice account.", !keys, keys ? "" : "Unavailable: no Alpaca keys found in the .env file on this computer."),
+        row({ title: "Stop session", sub: "Stops new trades. Open positions stay open (use Portfolio → Close all to close them).",
+          trailing: h("button", { type: "button", class: "btn small danger-ghost", disabled: busy || !st?.running, onclick: stop }, "Stop") }),
+      ], { header: h("span", { class: "head-with" }, "Session ", st ? modeBadge(st) : null),
+        footer: h("span", { class: "live-note", role: "note" }, h("strong", null, "Live trading (real money) cannot be started from this page."),
+          " It can only be enabled by the owner from the command line, with an explicit safety setting. API keys live in the .env file on this computer; they are never shown or entered here.") }));
   };
   const u = store.subscribe("status", draw);
   el._cleanup = u;
@@ -201,7 +209,7 @@ function sessionPanel() {
 
 export function render(root) {
   const cfg = panel({
-    title: "Limits and thresholds", cls: "span-2", store, key: "config",
+    title: "Limits and thresholds", id: "settings-cfg", headless: true, store, key: "config",
     render: (d) => {
       const host = h("div");
       const mount = () => host.replaceChildren(configForm(store.data("config")));
@@ -211,13 +219,7 @@ export function render(root) {
     },
     empty: { title: "No configuration loaded" },
   });
-  const head = h("section", { class: "panel span-3 toolbar" }, h("h1", { class: "screen-title" }, "Settings"),
-    h("p", { class: "muted" }, "Choose how the system runs and the limits it must respect. Only changed fields are saved."));
-  const out = isRemote() ? h("section", { class: "panel span-3", "aria-label": "Sign out" },
-    h("header", { class: "panel-head" }, h("h2", null, "This device")),
-    h("p", { class: "help" }, "You are signed in to this dashboard. Sign out on shared or lost devices."),
-    h("div", { class: "form-actions" }, h("button", { type: "button", class: "btn danger-ghost", onclick: () => signOut() }, "Sign out"))) : null;
-  const grid = h("div", { class: "grid" }, head, sessionPanel(), cfg, out);
-  stagger([...grid.children], 0, 60);
-  root.append(grid);
+  const kids = [h("p", { class: "lead" }, "Choose how the system runs and the limits it must respect. Only changed fields are saved."), sessionPanel(), cfg];
+  if (firstTime("settings")) stagger(kids, 0, 60);
+  root.append(...kids);
 }

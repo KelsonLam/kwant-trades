@@ -56,6 +56,9 @@ export function clear(el) { while (el.firstChild) el.removeChild(el.firstChild);
 
 export const prefersReducedMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/** Append children, skipping null/false (Node.append would print "null"). */
+export function put(el, ...children) { append(el, children); return el; }
+
 /** Safe external link: only https:// URLs become anchors. */
 export function extLink(url, text) {
   if (typeof url === "string" && url.startsWith("https://")) {
@@ -155,16 +158,22 @@ export function announce(msg) {
   if (el) { el.textContent = ""; setTimeout(() => { el.textContent = msg; }, 30); }
 }
 
-// ---------------------------------------------------------------- confirm dialog
+// ---------------------------------------------------------------- confirm dialog (iOS alert style)
 export function confirmDialog({ title, body, confirmText = "Confirm", danger = false, cancelText = "Cancel" }) {
   return new Promise((resolve) => {
     const dlg = h("dialog", { class: "dlg", "aria-labelledby": "dlg-title" });
-    const done = (v) => { dlg.classList.add("closing"); setTimeout(() => { if (dlg.open) dlg.close(); dlg.remove(); resolve(v); }, prefersReducedMotion() ? 0 : 160); };
-    const okBtn = h("button", { type: "button", class: `btn ${danger ? "danger" : "primary"}`, onclick: () => done(true) }, confirmText);
+    let finished = false;
+    const done = (v) => {
+      if (finished) return; finished = true;
+      dlg.classList.add("closing");
+      setTimeout(() => { if (dlg.open) dlg.close(); dlg.remove(); resolve(v); }, prefersReducedMotion() ? 0 : 180);
+    };
+    const okBtn = h("button", { type: "button", class: `dlg-btn ${danger ? "danger" : "primary"}`, onclick: () => done(true) }, confirmText);
     dlg.append(
-      h("h2", { id: "dlg-title" }, title),
-      ...(Array.isArray(body) ? body : [body]).map((b) => (b instanceof Node ? b : h("p", null, b))),
-      h("div", { class: "dlg-actions" }, h("button", { type: "button", class: "btn ghost", onclick: () => done(false), autofocus: true }, cancelText), okBtn),
+      h("div", { class: "dlg-body" },
+        h("h2", { id: "dlg-title" }, title),
+        ...(Array.isArray(body) ? body : [body]).map((b) => (b instanceof Node ? b : h("p", null, b)))),
+      h("div", { class: "dlg-actions" }, h("button", { type: "button", class: "dlg-btn", onclick: () => done(false), autofocus: true }, cancelText), okBtn),
     );
     dlg.addEventListener("cancel", (e) => { e.preventDefault(); done(false); });
     dlg.addEventListener("click", (e) => { if (e.target === dlg) done(false); });
@@ -174,15 +183,22 @@ export function confirmDialog({ title, body, confirmText = "Confirm", danger = f
 }
 
 // ---------------------------------------------------------------- panels with load/error/empty states
+/** Panels that have already been drawn once this session: they never replay their entrance animation. */
+const SEEN = new Set();
+/** True only the first time a key is seen: gate entrance animations so they never replay on revisits. */
+export function firstTime(key) { if (SEEN.has(key)) return false; SEEN.add(key); return true; }
+
 /**
- * A card bound to a store key. render(data, {first}) returns a Node (or null for empty).
- * Handles: skeleton while loading, "couldn't load" with Retry, and an honest empty state.
+ * A section bound to a store key. render(data, {first}) returns a Node (or null for empty).
+ * Handles: skeleton while loading, a plain-words error with Retry only when there has never been data,
+ * a quiet "Updating…" hint while a refresh is failing (the last good data stays on screen), and an honest empty state.
  */
-export function panel({ title, titleNode, cls = "", store, key, render, empty, retry, actions, note }) {
+export function panel({ title, id, cls = "", store, key, render, empty, retry, actions, note, headless = false }) {
   const body = h("div", { class: "panel-body" });
-  const head = h("header", { class: "panel-head" }, h("h2", null, titleNode || title), actions || null);
+  const head = headless ? null : h("header", { class: "panel-head" }, h("h2", null, title), actions || null);
   const el = h("section", { class: `panel cu ${cls}`, "aria-label": title }, head, note ? h("p", { class: "panel-note" }, note) : null, body);
-  let first = true, lastSig = null;
+  const seenKey = id || `${key}:${title}`;
+  let lastSig = null;
   const draw = (force) => {
     const st = store.get(key);
     if (!st || (st.data == null && !st.error)) {
@@ -196,21 +212,23 @@ export function panel({ title, titleNode, cls = "", store, key, render, empty, r
     lastSig = sig;
     if (st.error && st.data == null) {
       clear(body);
-      body.append(h("div", { class: "state err" },
-        h("span", { class: "state-icon", "aria-hidden": "true" }, "!"),
-        h("p", null, `Couldn't load ${title.toLowerCase()}.`),
-        h("p", { class: "muted small" }, String(st.error)),
+      const unreachable = st.errorKind === "network";
+      body.append(h("div", { class: "state err", role: "status" },
+        h("p", { class: "state-title" }, unreachable ? "Can't reach your PC right now." : `Something went wrong loading ${title.toLowerCase()}.`),
+        h("p", { class: "muted small" }, unreachable ? "Check it's on and Tailscale is connected." : String(st.error)),
         h("button", { type: "button", class: "btn small", onclick: () => (retry ? retry() : store.refresh(key)) }, "Retry")));
       return;
     }
+    const first = !SEEN.has(seenKey);
     let node = null;
     try { node = render(st.data, { first }); }
-    catch (err) { console.warn("render failed", title, err); node = h("p", { class: "state err" }, "Something in this panel couldn't be displayed."); }
+    catch (err) { console.warn("render failed", title, err); node = h("p", { class: "state err" }, "Something in this section couldn't be displayed."); }
     clear(body);
     if (node == null) body.append(emptyState(typeof empty === "function" ? empty(st.data) : empty));
     else body.append(node);
-    if (st.error) body.append(h("p", { class: "stale" }, "Showing last good data — refresh failed. ", h("button", { type: "button", class: "linkbtn", onclick: () => store.refresh(key) }, "Retry")));
-    if (node != null) first = false;
+    // A failing refresh is not an error while we still have data: show a quiet hint and keep going.
+    if (st.error) body.append(h("p", { class: "updating", role: "status" }, h("span", { class: "spin", "aria-hidden": "true" }), "Updating…"));
+    if (node != null) SEEN.add(seenKey);
   };
   const unsub = store.subscribe(key, () => draw(false));
   draw(true);
@@ -222,7 +240,6 @@ export function panel({ title, titleNode, cls = "", store, key, render, empty, r
 export function emptyState(msg) {
   const m = msg || { title: "Nothing here yet" };
   return h("div", { class: "state empty" },
-    h("span", { class: "state-icon", "aria-hidden": "true" }, "○"),
     h("p", { class: "state-title" }, m.title || String(m)),
     m.hint ? h("p", { class: "muted small" }, m.hint) : null,
     m.action || null);
@@ -230,7 +247,7 @@ export function emptyState(msg) {
 
 export function skeleton(lines = 3) {
   const w = h("div", { class: "skeleton", "aria-busy": "true", "aria-label": "Loading" });
-  for (let i = 0; i < lines; i++) w.append(h("span", { style: { width: `${90 - i * 18}%` } }));
+  for (let i = 0; i < lines; i++) w.append(h("span", { class: `sk-line w${i}` }));
   return w;
 }
 
@@ -267,12 +284,12 @@ export function stagger(children, base = 0, step = 45) {
   return children;
 }
 
-/** Chip like PASS/BLOCK with icon + text. */
+/** Chip like Allowed/Blocked with icon + text. */
 export function decisionChip(passed) {
-  if (passed == null) return h("span", { class: "chip neutral" }, "– Not checked");
+  if (passed == null) return h("span", { class: "chip neutral" }, "Not checked");
   return passed
-    ? h("span", { class: "chip pass" }, h("span", { "aria-hidden": "true" }, "✓ "), "PASS")
-    : h("span", { class: "chip block" }, h("span", { "aria-hidden": "true" }, "✕ "), "BLOCK");
+    ? h("span", { class: "chip pass" }, h("span", { "aria-hidden": "true" }, "✓ "), "Allowed")
+    : h("span", { class: "chip block" }, h("span", { "aria-hidden": "true" }, "✕ "), "Blocked");
 }
 
 export function flagChip(flag) {

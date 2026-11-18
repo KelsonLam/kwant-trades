@@ -1,260 +1,323 @@
-// App shell: theme, demo banner, always-visible header strip, hash router, polling.
-import { h, s, clear, term, initTooltips, tweenNumber, meter, announce, toast, prefersReducedMotion } from "./dom.js";
+// App shell: bottom tab bar, hash router with push/pop + tab transitions, alert banners, polling.
+import { h, initTooltips, announce, toast, prefersReducedMotion } from "./dom.js";
 import { init, api, isDemo, getDemoReason } from "./api.js";
 import { store, startPolling } from "./store.js";
-import { money, signedMoney, clock, timeNY, dateNY, parseTime, relTime, isNum, tone, arrow, pct } from "./format.js";
+import { isNum, parseTime } from "./format.js";
 import { MARKET_STATES } from "./glossary.js";
-import { ring } from "./charts.js";
-import { syncClock, serverNow, modeBadge } from "./shared.js";
+import { syncClock } from "./shared.js";
+import { createPage, icon, closeSheet, SHEET_EASE } from "./ui.js";
+import { apply as applyTheme, watchSystem } from "./appearance.js";
 import * as overview from "./screens/overview.js";
 import * as opportunities from "./screens/opportunities.js";
+import * as positions from "./screens/positions.js";
+import * as more from "./screens/more.js";
 import * as signals from "./screens/signals.js";
 import * as volatility from "./screens/volatility.js";
-import * as positions from "./screens/positions.js";
 import * as activity from "./screens/activity.js";
 import * as backtest from "./screens/backtest.js";
 import * as settings from "./screens/settings.js";
 
-const ROUTES = [
-  { id: "overview", label: "Overview", mod: overview },
-  { id: "opportunities", label: "Opportunities", mod: opportunities },
-  { id: "signals", label: "Signals", mod: signals },
-  { id: "volatility", label: "Volatility", mod: volatility },
-  { id: "positions", label: "Positions", mod: positions },
-  { id: "activity", label: "Activity", mod: activity },
-  { id: "backtest", label: "Backtest", mod: backtest },
-  { id: "settings", label: "Settings", mod: settings },
+applyTheme();
+watchSystem();
+
+// ---------------------------------------------------------------- routes
+const TABS = [
+  { id: "home", label: "Home", icon: "home", mod: overview },
+  { id: "ideas", label: "Ideas", icon: "ideas", mod: opportunities },
+  { id: "portfolio", label: "Portfolio", icon: "portfolio", mod: positions },
+  { id: "more", label: "More", icon: "more", mod: more },
 ];
+const MORE_PAGES = { signals, volatility, news: activity, backtest, settings };
+const MORE_TITLES = Object.fromEntries([...more.PAGES.map((p) => [p.id, p.title]), ["settings", "Settings"]]);
 
-// ---------------------------------------------------------------- theme
-const THEME_KEY = "kwanttrades.theme";
-function getStoredTheme() { try { return localStorage.getItem(THEME_KEY); } catch { return null; } }
-function setStoredTheme(t) { try { localStorage.setItem(THEME_KEY, t); } catch { /* storage unavailable */ } }
-function currentTheme() {
-  const t = document.documentElement.dataset.theme;
-  if (t === "light" || t === "dark") return t;
-  return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-}
-function applyTheme(t) { document.documentElement.dataset.theme = t; }
-applyTheme(getStoredTheme() || currentTheme());
+// Old bookmarks (#/overview, #/opportunities, ...) map onto the new structure.
+const LEGACY = {
+  overview: ["home"], opportunities: ["ideas"], positions: ["portfolio"], activity: ["portfolio", "activity"],
+  signals: ["more", "signals"], volatility: ["more", "volatility"], news: ["more", "news"],
+  backtest: ["more", "backtest"], settings: ["more", "settings"],
+};
 
-function themeToggle() {
-  const sun = s("svg", { width: 18, height: 18, viewBox: "0 0 24 24", class: "ico ico-sun", "aria-hidden": "true" },
-    s("circle", { cx: 12, cy: 12, r: 4.5 }), ...[0, 45, 90, 135, 180, 225, 270, 315].map((a) => s("line", { x1: 12, y1: 2.5, x2: 12, y2: 5, transform: `rotate(${a} 12 12)` })));
-  const moon = s("svg", { width: 18, height: 18, viewBox: "0 0 24 24", class: "ico ico-moon", "aria-hidden": "true" }, s("path", { d: "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" }));
-  const btn = h("button", { type: "button", class: "icon-btn theme-btn", "aria-label": "Switch to light theme" }, sun, moon);
-  const sync = () => {
-    const t = currentTheme();
-    btn.setAttribute("aria-label", t === "dark" ? "Switch to light theme" : "Switch to dark theme");
-    btn.setAttribute("aria-pressed", String(t === "light"));
-  };
-  btn.addEventListener("click", () => {
-    const next = currentTheme() === "dark" ? "light" : "dark";
-    applyTheme(next); setStoredTheme(next); sync();
-    announce(`${next === "dark" ? "Dark" : "Light"} theme`);
-  });
-  sync();
-  return btn;
-}
-
-// ---------------------------------------------------------------- header strip
-const hdr = {};
-function buildHeader() {
-  hdr.mode = h("span", { class: "hdr-mode" });
-  hdr.ringHost = h("span", { class: "mk-visual" });
-  hdr.mkState = h("span", { class: "mk-state" }, "—");
-  hdr.mkCount = h("span", { class: "mk-count num" }, "");
-  hdr.mkBar = h("span", { class: "bar-fill" });
-  hdr.sessBar = h("span", { class: "bar sess-bar", hidden: true, "aria-hidden": "true" }, hdr.mkBar);
-  hdr.equity = h("span", { class: "eq-val num" }, "—");
-  hdr.dayArrow = h("span", { class: "arw", "aria-hidden": "true" });
-  hdr.dayVal = h("span", { class: "num" }, "—");
-  hdr.day = h("span", { class: "day-pnl val flat" }, hdr.dayArrow, " ", hdr.dayVal);
-  hdr.meters = h("div", { class: "meters" });
-  hdr.kill = h("span", { class: "kill" });
-  hdr.conn = h("span", { class: "conn", hidden: true, role: "status" }, "Reconnecting…");
-  hdr.note = h("p", { class: "hdr-note small" });
-  hdr.pulse = h("span", { class: "live-dot", "aria-hidden": "true" });
-
-  const brand = h("a", { href: "#/overview", class: "brand", "aria-label": "Kwant Trades overview" },
-    s("svg", { width: 22, height: 22, viewBox: "0 0 32 32", class: "brand-mark", "aria-hidden": "true" },
-      s("path", { d: "M3 24 L12 15 L18 20 L29 7", class: "bm-line" }), s("circle", { cx: 29, cy: 7, r: 3, class: "bm-dot" })),
-    h("span", { class: "brand-word" }, "KWANT", h("span", { class: "brand-edge" }, "TRADES")));
-
-  return h("header", { class: "hdr", role: "banner" },
-    h("div", { class: "hdr-row" },
-      h("div", { class: "hdr-id" }, brand, hdr.mode),
-      h("div", { class: "hdr-market", "aria-live": "polite" }, hdr.ringHost, h("span", { class: "mk-text" }, hdr.mkState, hdr.mkCount, hdr.sessBar)),
-      h("div", { class: "hdr-eq" }, h("span", { class: "eq-lbl small" }, "Account value"), hdr.equity, h("span", { class: "eq-day small" }, hdr.day, h("span", { class: "muted" }, " today"))),
-      hdr.meters,
-      h("div", { class: "hdr-tools" }, hdr.conn, hdr.kill, themeToggle())),
-    h("div", { class: "hdr-sub" }, hdr.pulse, hdr.note));
-}
-
-let lastMarketState = null, lastMode = null, ringEl = null, wasOffline = false;
-function drawHeader() {
-  const st = store.data("status");
-  const err = store.get("status")?.error;
-  // Connection indicator: shown while polling fails (phone asleep, PC off, network change); recovers by itself.
-  hdr.conn.hidden = !err;
-  if (wasOffline && !err) store.refreshMany(["config", "ideas", "signals", "positions", "equity", "decisions", "news", "scan"]);
-  wasOffline = !!err;
-  if (st) {
-    syncClock(st.now);
-    hdr.mode.replaceChildren(modeBadge(st));
-    const acc = st.account || {};
-    tweenNumber(hdr.equity, acc.equity, (v) => money(v));
-    tweenNumber(hdr.dayVal, acc.day_pnl, (v) => signedMoney(v), { flash: false });
-    hdr.day.className = `day-pnl val ${tone(acc.day_pnl)}`;
-    const prevDay = hdr.day._prev;
-    if (isNum(prevDay) && isNum(acc.day_pnl) && Math.abs(prevDay - acc.day_pnl) >= 0.005) {
-      hdr.equity.parentElement.classList.remove("flash-gain", "flash-loss"); void hdr.equity.offsetWidth;
-      hdr.equity.parentElement.classList.add(acc.day_pnl > prevDay ? "flash-gain" : "flash-loss");
-    }
-    hdr.day._prev = acc.day_pnl;
-    hdr.dayArrow.textContent = arrow(acc.day_pnl);
-    drawMeters(st, acc);
-    hdr.kill.replaceChildren(st.kill_switch
-      ? h("span", { class: "kill-on", role: "status" }, h("span", { "aria-hidden": "true" }, "⛔ "), term("kill_switch", "KILL SWITCH ON"))
-      : h("span", { class: "kill-off" }, h("span", { "aria-hidden": "true" }, "● "), term("kill_switch", "Kill switch off")));
-    const prov = st.provider ? `Source: ${st.provider}` : "";
-    hdr.note.replaceChildren(...[
-      h("span", null, String(st.data_delay_note || "Quotes may be delayed.")),
-      prov ? h("span", { class: "muted" }, ` · ${prov}`) : null,
-      h("span", { class: "muted" }, ` · updated ${timeNY(st.now, { seconds: true })} NY`),
-      err ? h("span", { class: "warn-txt" }, " · connection problem — retrying") : null,
-    ].filter(Boolean));
-    hdr.pulse.classList.toggle("stale", !!err);
-    hdr.pulse.classList.remove("beat"); void hdr.pulse.offsetWidth; hdr.pulse.classList.add("beat");
-    if (lastMode && lastMode !== (st.running ? st.mode : "idle")) announce(`Mode changed to ${st.running ? st.mode : "idle"}`);
-    lastMode = st.running ? st.mode : "idle";
-    document.body.classList.toggle("is-practice", !!(st.running && ["paper", "alpaca_paper"].includes(st.mode)));
-  } else if (err) {
-    hdr.note.replaceChildren(h("span", { class: "warn-txt" }, `Can't reach the server: ${err}. Retrying…`));
-    hdr.pulse.classList.add("stale");
-  }
-  tickMarket();
-}
-
-function drawMeters(st, acc) {
-  const cfg = store.data("config");
-  const eq = acc.equity;
-  // The server states the dollar caps itself (st.limits); fall back to deriving them from the percentages.
-  const lim = st.limits || {};
-  const riskCap = isNum(lim.max_portfolio_risk) ? lim.max_portfolio_risk
-    : isNum(cfg?.risk?.max_portfolio_risk_pct) && isNum(eq) ? cfg.risk.max_portfolio_risk_pct * eq : null;
-  const lossCap = isNum(lim.daily_loss_limit) ? lim.daily_loss_limit
-    : isNum(cfg?.risk?.daily_loss_limit_pct) && isNum(eq) ? cfg.risk.daily_loss_limit_pct * (eq - Math.min(0, acc.day_pnl || 0)) : null;
-  const loss = isNum(acc.day_pnl) ? Math.max(0, -acc.day_pnl) : null;
-  const mk = (lbl, key, value, cap, fmt) => h("div", { class: "hm" }, h("span", { class: "hm-lbl small" }, term(key, lbl)), meter(value, cap, { label: lbl, fmt }));
-  hdr.meters.replaceChildren(
-    mk("Open risk", "open_risk", acc.open_risk, riskCap, (v, c) => `${money(v, { cents: false })} / ${isNum(c) ? money(c, { cents: false }) : "—"}`),
-    mk("Trades", "contracts", st.trades_today, st.max_trades_per_day, (v, c) => `${isNum(v) ? v : "—"} / ${isNum(c) ? c : "—"}`),
-    mk("Day loss", "daily_loss", loss, lossCap, (v, c) => `${money(v, { cents: false })} / ${isNum(c) ? money(c, { cents: false }) : "—"}`));
-}
-
-/** Countdown ring during the opening range, then a session progress bar. Runs every second. */
-function tickMarket() {
-  const st = store.data("status");
-  if (!st || !st.market) return;
-  const m = st.market;
-  const now = serverNow();
-  const state = m.state;
-  const close = parseTime(m.next_close), open = parseTime(m.next_open), orEnd = parseTime(m.opening_range_ends);
-  hdr.mkState.textContent = MARKET_STATES[state] || "Market state unknown";
-  let count = "", showBar = false;
-  if (state === "opening_range" && orEnd) {
-    const start = orEnd - 15 * 60000;
-    const frac = (now - start) / (orEnd - start);
-    if (!ringEl) { ringEl = ring(frac, { size: 40, label: "Opening range progress" }); hdr.ringHost.replaceChildren(ringEl, h("span", { class: "ring-txt num", "aria-hidden": "true" })); }
-    ringEl._set(frac);
-    hdr.ringHost.lastChild.textContent = clock(orEnd - now).replace(/^00:/, "");
-    count = ` · range set in ${clock(orEnd - now)}`;
-  } else {
-    if (ringEl) { ringEl = null; hdr.ringHost.replaceChildren(); }
-    if (state === "open" && close) {
-      const sessStart = close - 6.5 * 3600000;
-      hdr.mkBar.style.transform = `scaleX(${Math.max(0, Math.min(1, (now - sessStart) / (close - sessStart)))})`;
-      showBar = true;
-      count = ` · closes in ${clock(close - now)}`;
-    } else if (state === "pre" && open) count = ` · opens in ${clock(open - now)}`;
-    else if (state === "closed" && open) count = ` · opens ${dateNY(open, { weekday: true })} ${timeNY(open)} NY`;
-    hdr.ringHost.replaceChildren(h("span", { class: `mk-dot ${state}`, "aria-hidden": "true" }));
-  }
-  hdr.mkCount.textContent = count;
-  hdr.sessBar.hidden = !showBar;
-  if (lastMarketState && lastMarketState !== state) {
-    announce(MARKET_STATES[state] || state);
-    if (state === "open") toast("Opening range is set — the entry window is open.");
-    store.refreshMany(["status", "signals", "ideas"]);
-  }
-  lastMarketState = state;
-}
-
-// ---------------------------------------------------------------- router
-let currentView = null, currentRoute = null;
 function parseHash() {
   const raw = (location.hash || "").replace(/^#\/?/, "");
-  const [path] = raw.split("?");
-  const parts = path.split("/").filter(Boolean).map((p) => { try { return decodeURIComponent(p); } catch { return p; } });
-  const route = ROUTES.find((r) => r.id === parts[0]) || ROUTES[0];
-  return { route, params: parts.slice(1) };
+  let parts = raw.split("?")[0].split("/").filter(Boolean).map((p) => { try { return decodeURIComponent(p); } catch { return p; } });
+  let rewrite = false;
+  if (parts[0] && LEGACY[parts[0]]) { parts = [...LEGACY[parts[0]], ...parts.slice(1)]; rewrite = true; }
+  let tab = TABS.find((t) => t.id === parts[0]);
+  if (!tab) { tab = TABS[0]; parts = ["home"]; rewrite = rewrite || !!raw; }
+  let route;
+  if (tab.id === "more" && parts[1] && MORE_PAGES[parts[1]]) {
+    route = { tab, depth: 1, key: `more/${parts[1]}`, mod: MORE_PAGES[parts[1]], params: parts.slice(2), title: MORE_TITLES[parts[1]] || parts[1] };
+  } else {
+    if (tab.id === "more" && parts[1]) { parts = ["more"]; rewrite = true; }
+    route = { tab, depth: 0, key: tab.id, mod: tab.mod, params: parts.slice(1), title: tab.label };
+  }
+  route.hash = "#/" + parts.map(encodeURIComponent).join("/");
+  route.rewrite = rewrite;
+  return route;
 }
 
-function unmount(view) {
-  view.querySelectorAll(".cu").forEach((el) => { try { el._cleanup && el._cleanup(); } catch { /* ignore */ } });
-}
+// ---------------------------------------------------------------- shell elements
+const stage = document.getElementById("stage");
+const banners = document.getElementById("banners");
+const root = document.documentElement;
+let current = null; // { route, el, page }
+let stackFromApp = false;
+const scrollPos = new Map();
+let skipNextAnim = false;
 
-function navigate() {
-  const { route, params } = parseHash();
-  const main = document.getElementById("main");
-  document.querySelectorAll(".tabs a").forEach((a) => {
-    const on = a.dataset.route === route.id;
-    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
-    if (on) a.scrollIntoView({ block: "nearest", inline: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+function buildTabbar() {
+  const items = TABS.map((t) => {
+    const a = h("a", { href: `#/${t.id}`, class: "tab", "data-tab": t.id }, icon(t.icon, { size: 26, cls: "tab-ico" }), h("span", { class: "tab-lbl" }, t.label));
+    a.addEventListener("click", (e) => {
+      if (current && current.route.tab.id === t.id && current.route.depth === 0) {
+        e.preventDefault();
+        current.page.scroller.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      }
+    });
+    return h("li", null, a);
   });
-  moveTabInk();
-  document.title = `${route.label} · Kwant Trades${isDemo() ? " (demo)" : ""}`;
-  const old = currentView;
-  const view = h("div", { class: "view", "data-route": route.id });
-  const mountNew = () => {
-    if (old) { unmount(old); old.remove(); }
-    main.appendChild(view);
-    try { route.mod.render(view, params); }
-    catch (e) { console.error(e); view.append(h("p", { class: "state err" }, "This screen couldn't be displayed.")); }
-    const show = () => view.classList.add("in");
-    requestAnimationFrame(show);
-    setTimeout(show, 80); // rAF doesn't fire in background tabs
+  return h("nav", { class: "tabbar", "aria-label": "Main" },
+    h("p", { class: "rail-brand", "aria-hidden": "true" }, "KWANT", h("span", { class: "brand-edge" }, "TRADES")),
+    h("ul", null, items));
+}
+const tabbar = buildTabbar();
+document.getElementById("app").append(tabbar);
+
+function markTab(route) {
+  tabbar.querySelectorAll(".tab").forEach((a) => {
+    if (a.dataset.tab === route.tab.id) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+}
+
+// ---------------------------------------------------------------- pages
+function unmount(el) {
+  el.querySelectorAll(".cu").forEach((n) => { try { n._cleanup && n._cleanup(); } catch { /* ignore */ } });
+}
+
+function buildPage(route) {
+  const meta = route.mod.meta || {};
+  const back = route.depth ? { label: "More", href: "#/more", onclick: goBack } : null;
+  const page = createPage({ title: route.title, back, eyebrow: meta.eyebrow ? meta.eyebrow() : null, key: route.key });
+  try { route.mod.render(page.content, route.params, { trail: page.trail, page, route }); }
+  catch (e) { console.error(e); page.content.append(h("p", { class: "state err" }, "This screen couldn't be displayed.")); }
+  return page;
+}
+
+function goBack() {
+  if (stackFromApp) history.back();
+  else location.hash = "#/more";
+}
+
+const EASE = SHEET_EASE;
+const DUR = 450;
+
+function animateFallback(newEl, oldEl, dir) {
+  const reduce = prefersReducedMotion();
+  const done = () => { if (oldEl) { unmount(oldEl); oldEl.remove(); } };
+  const opts = (d) => ({ duration: reduce ? 160 : d, easing: reduce ? "ease-out" : EASE, fill: "both" });
+  if (!oldEl) return;
+  if (reduce || dir === "tab") {
+    const a = newEl.animate([{ opacity: 0, transform: reduce ? "none" : "scale(.985)" }, { opacity: 1, transform: "none" }], opts(300));
+    oldEl.animate([{ opacity: 1 }, { opacity: 0 }], opts(180));
+    a.onfinish = () => { done(); newEl.getAnimations().forEach((x) => x.cancel()); };
+    return;
+  }
+  const dim = (el, from, to) => { const d = el.querySelector(".page-dim"); if (d) d.animate([{ opacity: from }, { opacity: to }], opts(DUR)); };
+  if (dir === "push") {
+    const a = newEl.animate([{ transform: "translateX(100%)" }, { transform: "none" }], opts(DUR));
+    oldEl.animate([{ transform: "none" }, { transform: "translateX(-30%)" }], opts(DUR));
+    dim(oldEl, 0, 1);
+    a.onfinish = () => { done(); newEl.getAnimations().forEach((x) => x.cancel()); };
+  } else {
+    newEl.animate([{ transform: "translateX(-30%)" }, { transform: "none" }], opts(DUR));
+    dim(newEl, 1, 0);
+    const a = oldEl.animate([{ transform: "none" }, { transform: "translateX(100%)" }], opts(DUR));
+    a.onfinish = () => { done(); newEl.getAnimations().forEach((x) => x.cancel()); };
+  }
+}
+
+let activeVT = null;
+let queue = Promise.resolve();
+
+function navigate() { queue = queue.then(run).catch((e) => console.error(e)); }
+
+async function run() {
+  const next = parseHash();
+  if (next.rewrite) history.replaceState(null, "", next.hash);
+  closeSheet(true);
+  const same = current && current.route.key === next.key;
+  if (same && current.route.params.join("/") === next.params.join("/")) return;
+  if (activeVT) { try { activeVT.skipTransition(); await activeVT.updateCallbackDone; } catch { /* ignore */ } }
+  // drop leftovers from an interrupted fallback animation
+  [...stage.children].forEach((c) => { if (!current || c !== current.el) { unmount(c); c.remove(); } });
+
+  const old = current;
+  let dir = "none";
+  if (old && !same) dir = next.tab.id !== old.route.tab.id ? "tab" : next.depth > old.route.depth ? "push" : next.depth < old.route.depth ? "pop" : "tab";
+  if (skipNextAnim) { dir = "none"; skipNextAnim = false; }
+  if (dir === "push") stackFromApp = true; else if (dir !== "none") stackFromApp = false;
+
+  const swap = (useVT) => {
+    if (old) scrollPos.set(old.route.key, old.page.scroller.scrollTop);
+    const page = buildPage(next);
+    const dimmer = h("div", { class: "page-dim", "aria-hidden": "true" });
+    page.el.append(dimmer);
+    if (dir === "pop") stage.insertBefore(page.el, old.el); else stage.append(page.el);
+    if (old) old.el.setAttribute("inert", "");
+    current = { route: next, el: page.el, page };
+    markTab(next);
+    root.classList.toggle("has-detail", next.depth > 0);
+    document.title = `${next.title} · Kwant Trades${isDemo() ? " (demo)" : ""}`;
+    const y = scrollPos.get(next.key);
+    if (y && dir !== "push") page.scroller.scrollTop = y;
+    page.update();
+    if (old) {
+      if (useVT) { unmount(old.el); old.el.remove(); }
+      else if (dir === "none") { unmount(old.el); old.el.remove(); }
+      else animateFallback(page.el, old.el, dir);
+      const h1 = page.el.querySelector("h1");
+      if (h1) h1.focus({ preventScroll: true });
+    }
   };
-  if (old && !prefersReducedMotion() && currentRoute !== route.id) {
-    old.classList.add("out");
-    setTimeout(mountNew, 140);
-  } else mountNew();
-  currentView = view; currentRoute = route.id;
-  if (old) main.focus({ preventScroll: true });
-  window.scrollTo({ top: 0, behavior: "auto" });
+
+  if (old && dir !== "none" && typeof document.startViewTransition === "function" && !document.hidden) {
+    root.classList.add(`vt-${dir}`);
+    try {
+      activeVT = document.startViewTransition(() => swap(true));
+      const vt = activeVT;
+      vt.finished.catch(() => {}).finally(() => { root.classList.remove("vt-push", "vt-pop", "vt-tab"); if (activeVT === vt) activeVT = null; });
+      // If the browser never gets to render (throttled pane), don't let the router queue wait forever.
+      const guard = setTimeout(() => { try { vt.skipTransition(); } catch { /* ignore */ } }, 1500);
+      await vt.updateCallbackDone.catch(() => {});
+      clearTimeout(guard);
+      return;
+    } catch (e) {
+      root.classList.remove("vt-push", "vt-pop", "vt-tab");
+      activeVT = null;
+    }
+  }
+  swap(false);
 }
 
-function moveTabInk() {
-  const nav = document.querySelector(".tabs");
-  const ink = nav && nav.querySelector(".tab-ink");
-  const a = nav && nav.querySelector("a[aria-current=page]");
-  if (!ink || !a) return;
-  ink.style.transform = `translateX(${a.offsetLeft}px) scaleX(${a.offsetWidth / 100})`;
+// ---------------------------------------------------------------- swipe back (Home Screen app only)
+function initSwipeBack() {
+  const standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+  if (!standalone) return; // in Safari the browser has its own back gesture: don't fight it
+  root.classList.add("standalone");
+  const edge = h("div", { class: "edge-swipe", "aria-hidden": "true" });
+  document.body.append(edge);
+  let st = null, raf = 0;
+  const paint = () => {
+    raf = 0;
+    if (!st || !st.under) return;
+    const w = stage.clientWidth || 1;
+    st.top.style.transform = `translateX(${st.dx}px)`;
+    const p = st.dx / w;
+    st.under.el.style.transform = `translateX(${(-30 * (1 - p)).toFixed(2)}%)`;
+    const d = st.under.el.querySelector(".page-dim"); if (d) d.style.opacity = String(1 - p);
+  };
+  const cleanupUnder = () => { if (st && st.under) { unmount(st.under.el); st.under.el.remove(); } };
+  edge.addEventListener("pointerdown", (e) => {
+    if (!current || current.route.depth < 1) return;
+    st = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, top: current.el, under: null, samples: [[performance.now(), e.clientX]], on: false };
+    edge.setPointerCapture(e.pointerId);
+  });
+  edge.addEventListener("pointermove", (e) => {
+    if (!st || e.pointerId !== st.id) return;
+    const dx = e.clientX - st.x0;
+    if (!st.on) {
+      if (Math.abs(dx) < 6) return;
+      if (Math.abs(e.clientY - st.y0) > Math.abs(dx)) { st = null; return; }
+      st.on = true;
+      const parent = { tab: current.route.tab, depth: 0, key: current.route.tab.id, mod: current.route.tab.mod, params: [], title: current.route.tab.label };
+      const page = buildPage(parent);
+      page.el.append(h("div", { class: "page-dim", "aria-hidden": "true" }));
+      page.el.setAttribute("inert", "");
+      const y = scrollPos.get(parent.key); if (y) page.scroller.scrollTop = y;
+      stage.insertBefore(page.el, st.top);
+      st.under = { el: page.el };
+      st.top.classList.add("swiping");
+    }
+    st.dx = Math.max(0, dx);
+    const now = performance.now();
+    st.samples.push([now, e.clientX]);
+    while (st.samples.length > 2 && now - st.samples[0][0] > 100) st.samples.shift();
+    if (!raf) raf = requestAnimationFrame(paint);
+  });
+  const end = (e) => {
+    if (!st || e.pointerId !== st.id) return;
+    const s0 = st; st = null;
+    if (!s0.on) return;
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    const w = stage.clientWidth || 1;
+    const a = s0.samples[0], b = s0.samples[s0.samples.length - 1];
+    const v = b[0] > a[0] ? (b[1] - a[1]) / (b[0] - a[0]) : 0;
+    const commit = e.type !== "pointercancel" && (s0.dx > w * 0.35 || v > 0.5);
+    const o = { duration: 240, easing: EASE, fill: "forwards" };
+    const under = s0.under.el;
+    if (commit) {
+      s0.top.animate([{ transform: `translateX(${s0.dx}px)` }, { transform: "translateX(100%)" }], o);
+      under.animate([{ transform: `translateX(${-30 * (1 - s0.dx / w)}%)` }, { transform: "none" }], o);
+      setTimeout(() => { skipNextAnim = true; s0.top.classList.remove("swiping"); goBack(); }, 250);
+    } else {
+      s0.top.animate([{ transform: `translateX(${s0.dx}px)` }, { transform: "none" }], o).onfinish = () => { s0.top.getAnimations().forEach((x) => x.cancel()); s0.top.style.transform = ""; };
+      under.animate([{ transform: `translateX(${-30 * (1 - s0.dx / w)}%)` }, { transform: "translateX(-30%)" }], o).onfinish = () => { unmount(under); under.remove(); };
+      s0.top.classList.remove("swiping");
+    }
+  };
+  edge.addEventListener("pointerup", end);
+  edge.addEventListener("pointercancel", end);
+  void cleanupUnder;
 }
 
-function buildTabs() {
-  return h("nav", { class: "tabs", "aria-label": "Screens" },
-    h("ul", null, ROUTES.map((r) => h("li", null, h("a", { href: `#/${r.id}`, "data-route": r.id }, r.label)))),
-    h("span", { class: "tab-ink", "aria-hidden": "true" }));
+// ---------------------------------------------------------------- banners (only when they matter)
+const bn = { demo: null, kill: null, conn: null };
+function buildBanners() {
+  if (isDemo()) {
+    bn.demo = h("div", { class: "banner demo", role: "note", "aria-label": "Demo data notice" },
+      h("strong", null, "DEMO DATA — not real quotes"),
+      h("span", { class: "demo-why" }, `${getDemoReason()}. Everything here is simulated in your browser.`),
+      location.search.includes("demo=1") ? h("a", { href: location.pathname, class: "demo-exit" }, "Live server") : null);
+  }
+  bn.kill = h("div", { class: "banner kill", role: "status" }, icon("shield", { size: 18 }), h("span", null, "Kill switch on — trading is stopped for today."));
+  bn.conn = h("div", { class: "banner conn", role: "status" }, h("span", { class: "spin", "aria-hidden": "true" }), h("span", null, "Reconnecting…"));
+}
+let bannerSig = "";
+let wasOffline = false;
+function drawBanners() {
+  const st = store.data("status");
+  const offline = store.failingFor() > 5000;
+  const show = [bn.demo, st?.kill_switch ? bn.kill : null, offline ? bn.conn : null].filter(Boolean);
+  const sig = show.map((b) => b.className).join("|");
+  if (sig !== bannerSig) {
+    bannerSig = sig;
+    banners.replaceChildren(...show);
+    root.classList.toggle("has-banner", show.length > 0);
+  }
+  if (wasOffline && !offline && store.failingFor() === 0) {
+    store.refreshMany(["config", "ideas", "signals", "positions", "equity", "decisions", "news", "scan"]);
+  }
+  wasOffline = offline;
 }
 
-// ---------------------------------------------------------------- demo banner
-function demoBanner() {
-  return h("div", { class: "demo-banner", role: "note", "aria-label": "Demo data notice" },
-    h("strong", null, "DEMO DATA — not real quotes"),
-    h("span", null, ` ${getDemoReason()}. Every price, trade and result on this page is simulated in your browser.`),
-    location.search.includes("demo=1") ? h("a", { href: location.pathname, class: "demo-exit" }, "Try the live server") : null);
+// ---------------------------------------------------------------- market state changes (announce + refresh)
+let lastMarketState = null, lastMode = null;
+function onStatus() {
+  const st = store.data("status");
+  if (st) {
+    syncClock(st.now);
+    const mode = st.running ? st.mode : "idle";
+    if (lastMode && lastMode !== mode) announce(`Mode changed to ${mode}`);
+    lastMode = mode;
+    const state = st.market?.state;
+    if (lastMarketState && state && lastMarketState !== state) {
+      announce(MARKET_STATES[state] || state);
+      if (state === "open") toast("Opening range is set — the entry window is open.");
+      store.refreshMany(["status", "signals", "ideas"]);
+    }
+    if (state) lastMarketState = state;
+  }
+  drawBanners();
 }
 
 // ---------------------------------------------------------------- polling definitions
@@ -301,27 +364,22 @@ function defineResources() {
 // ---------------------------------------------------------------- boot
 async function boot() {
   initTooltips();
-  const app = document.getElementById("app");
-  const header = buildHeader();
-  const tabs = buildTabs();
   let first = null;
   try { first = await init(); } catch (e) { first = null; }
-  if (isDemo()) { document.body.classList.add("is-demo"); header.prepend(demoBanner()); }
-  app.prepend(header, tabs);
+  if (isDemo()) document.body.classList.add("is-demo");
+  buildBanners();
   defineResources();
   if (first) store.set("status", first);
-  store.subscribe("status", drawHeader);
-  store.subscribe("config", drawHeader);
-  drawHeader();
+  store.subscribe("status", onStatus);
+  onStatus();
   startPolling();
-  let tick = setInterval(() => { if (!document.hidden) tickMarket(); }, 1000);
+  setInterval(() => { if (!document.hidden) drawBanners(); }, 1000);
   document.addEventListener("visibilitychange", () => { document.body.classList.toggle("paused", document.hidden); });
+  document.addEventListener("touchstart", () => {}, { passive: true }); // lets :active press feedback work on iOS
   window.addEventListener("hashchange", navigate);
   window.addEventListener("online", () => store.refreshMany(["status", "scan", "ideas", "signals", "positions"]));
-  window.addEventListener("resize", () => requestAnimationFrame(moveTabInk));
-  document.fonts?.ready?.then(moveTabInk);
+  initSwipeBack();
   navigate();
-  void tick;
 }
 
 window.addEventListener("unhandledrejection", (e) => { console.warn("Unhandled:", e.reason); e.preventDefault(); });

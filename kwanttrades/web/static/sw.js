@@ -1,7 +1,8 @@
 // Minimal service worker: keeps ONLY the static app shell so the installed app opens instantly and shows its
 // "Reconnecting" state when the server is unreachable. It never touches /api/*, never caches sign-in pages or redirected
 // responses, and always prefers the network.
-const CACHE = "kwanttrades-shell-v1";
+const CACHE = "kwanttrades-shell-v2";
+// index.html, the manifest, and everything under css/ js/ (incl. js/screens/) and icons/.
 const SHELL = /^\/(?:|index\.html|manifest\.webmanifest|(?:css|js|icons)\/[^?]+)$/;
 
 self.addEventListener("install", () => self.skipWaiting());

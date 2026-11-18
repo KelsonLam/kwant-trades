@@ -1,9 +1,10 @@
-import { h, panel, term, stagger, flagChip } from "../dom.js";
+import { h, panel, term, stagger, flagChip, firstTime } from "../dom.js";
 import { store } from "../store.js";
 import { api } from "../api.js";
 import { price, pct, isNum, timeNY, ymd, num, signedNum } from "../format.js";
 import { smileChart } from "../charts.js";
-import { delayNote } from "../shared.js";
+import { quoteNote } from "../shared.js";
+import { group } from "../ui.js";
 
 let current = { symbol: null, expiry: null };
 
@@ -12,6 +13,8 @@ function ensureKey(sym) {
   store.define(key, () => api.surface(sym), { interval: 15000 });
   return key;
 }
+
+export const meta = { title: "Volatility" };
 
 export function render(root, params) {
   const st = store.data("status");
@@ -31,13 +34,12 @@ export function render(root, params) {
     h("li", null, h("span", { class: "lg-flag cheap", "aria-hidden": "true" }), term("cheap", "Cheap")),
     h("li", null, h("span", { class: "lg-flag rich", "aria-hidden": "true" }), term("rich", "Rich")));
 
-  const head = h("section", { class: "panel span-3 toolbar" },
-    h("h1", { class: "screen-title" }, "Volatility"),
-    h("p", { class: "muted" }, "Each dot is what the market charges for one option, expressed as ", term("iv", "implied volatility"), ". The line is a smooth fair-value curve. Dots clearly off the line, beyond their bid–ask range, are flagged as cheap or rich."),
+  const head = h("div", { class: "vol-head" },
+    h("p", { class: "lead" }, "Each dot is what the market charges for one option, expressed as ", term("iv", "implied volatility"), ". The line is a smooth fair-value curve. Dots clearly off the line, beyond their bid–ask range, are flagged as cheap or rich."),
     h("div", { class: "filters" }, h("label", { for: "v-sym" }, "Symbol", symSel), h("label", { for: "v-exp" }, "Expiry", expSel)),
-    delayNote());
+    quoteNote());
 
-  const host = h("div", { class: "vol-host span-3" });
+  const host = h("div", { class: "vol-host" });
   let unmountPanels = [];
   const mount = () => {
     unmountPanels.forEach((p) => p._cleanup && p._cleanup());
@@ -45,7 +47,7 @@ export function render(root, params) {
     const key = ensureKey(current.symbol);
     let lastSurf = null;
     const chart = panel({
-      title: `${current.symbol} volatility smile`, cls: "span-2", store, key,
+      title: `${current.symbol} volatility smile`, id: "vol-smile", store, key,
       render: (d, { first }) => {
         lastSurf = d;
         const slices = d?.slices || [];
@@ -59,9 +61,9 @@ export function render(root, params) {
         const sl = slices.find((s) => s.expiry === current.expiry);
         if (!sl) return null;
         const flagged = (sl.points || []).filter((p) => p.flag);
-        return h("div", null,
+        return h("div", { class: "card chart-card" },
           legend,
-          smileChart(sl, { height: 320, spot: d.spot }),
+          smileChart(sl, { height: 300, spot: d.spot }),
           h("p", { class: "small muted" }, `Fit: ${sl.method || "—"} · fit error (RMSE) ${pct(sl.rmse, 2)} · forward ${price(sl.forward)} · ${flagged.length} flagged point${flagged.length === 1 ? "" : "s"} · as of ${timeNY(d.asof)} NY`));
       },
       empty: { title: "No surface for this symbol", hint: "Run a scan, or pick another symbol." },
@@ -70,11 +72,11 @@ export function render(root, params) {
     expSel.onchange = () => { current.expiry = expSel.value; chart._redraw(); };
 
     const table = panel({
-      title: "Mispricings found", store, key, cls: "span-1",
+      title: "Mispricings found", id: "vol-mis", store, key,
       render: (d) => {
         const m = d?.mispricings || [];
         if (!m.length) return null;
-        return h("div", { class: "tbl-wrap" }, h("table", { class: "tbl compact" },
+        return h("div", { class: "card tbl-card" }, h("div", { class: "tbl-wrap" }, h("table", { class: "tbl compact" },
           h("caption", { class: "sr-only" }, "Mispriced options"),
           h("thead", null, h("tr", null, h("th", { scope: "col" }, "Option"), h("th", { scope: "col" }, term("model", "Model")), h("th", { scope: "col", class: "num" }, term("edge_after_costs", "Edge after costs")), h("th", { scope: "col", class: "num" }, term("zscore", "Z")))),
           h("tbody", null, m.slice(0, 30).map((x) => {
@@ -84,22 +86,22 @@ export function render(root, params) {
               h("td", null, flagChip(cheap ? "cheap" : "rich"), h("div", { class: "small muted" }, String(x.model ?? "—"))),
               h("td", { class: "num" }, isNum(x.edge_after_costs) ? signedNum(x.edge_after_costs, 2) : "—", h("div", { class: "small muted" }, "per share")),
               h("td", { class: "num" }, isNum(x.zscore) ? num(x.zscore, 1) : "—"));
-          }))));
+          })))));
       },
       empty: { title: "Nothing mispriced right now", hint: "No option is off the fitted curve by more than its bid–ask spread." },
     });
-    host.append(h("div", { class: "grid inner" }, chart, table));
+    host.append(chart, table);
     unmountPanels = [chart, table];
   };
   symSel.addEventListener("change", () => {
     current.symbol = symSel.value; current.expiry = null;
-    history.replaceState(null, "", `#/volatility/${encodeURIComponent(current.symbol)}`);
+    history.replaceState(null, "", `#/more/volatility/${encodeURIComponent(current.symbol)}`);
     mount();
   });
   mount();
   host.classList.add("cu");
   host._cleanup = () => unmountPanels.forEach((p) => p._cleanup && p._cleanup());
-  const grid = h("div", { class: "grid" }, head, host);
-  stagger([...grid.children], 0, 60);
-  root.append(grid);
+  const kids = [head, host];
+  if (firstTime("volatility")) stagger(kids, 0, 60);
+  root.append(...kids);
 }

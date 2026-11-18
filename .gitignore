@@ -7,7 +7,7 @@ data/
 *.sqlite
 *.log
 
-# Local tooling and notes
+# Local notes
 SPEC.md
 
 # Python
