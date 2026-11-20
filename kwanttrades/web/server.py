@@ -539,6 +539,12 @@ def main(argv: list[str] | None = None) -> int:
                     help="trust X-Forwarded-For / X-Forwarded-Proto from a reverse proxy (remote mode only)")
     ap.add_argument("--allowed-host", action="append", default=[], metavar="NAME",
                     help="extra Host name accepted in remote mode, e.g. a VPN or tunnel name (repeatable)")
+    ap.add_argument("--wait-tailscale", type=int, default=0, metavar="SECONDS",
+                    help="with --tailscale: wait up to this long for Tailscale to connect (useful at startup)")
+    ap.add_argument("--keep-awake", action="store_true",
+                    help="ask Windows not to sleep from 20 min before the open until 15 min after the close")
+    ap.add_argument("--start-session", choices=["shadow", "paper", "alpaca_paper"],
+                    help="start this session as soon as the dashboard is up (live trading can never be auto-started)")
     args = ap.parse_args(argv)
     if not 0 <= args.port <= 65535:
         print("error: --port must be between 0 and 65535", file=sys.stderr)
@@ -549,6 +555,10 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         args.remote = True
         ts_ip = tailscale_ipv4()
+        deadline = time.monotonic() + max(0, args.wait_tailscale)
+        while ts_ip is None and time.monotonic() < deadline:
+            time.sleep(5)
+            ts_ip = tailscale_ipv4()
         if ts_ip is None:
             print("error: Tailscale is not connected on this computer. Open Tailscale, sign in, and try again.",
                   file=sys.stderr)
@@ -585,6 +595,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.remote:
         print(remote_banner(port, host), flush=True)
     print(f"Kwant Trades dashboard: {url}  (data source: {app.provider_name}; Ctrl+C to stop)", flush=True)
+    awake = None
+    if args.keep_awake:
+        from kwanttrades.app.keepawake import KeepAwake
+
+        awake = KeepAwake().start()
+    if args.start_session:
+        try:
+            app.start_session(args.start_session)
+            log.info("auto-started a %s session", args.start_session)
+            print(f"Started a {args.start_session} session automatically.", flush=True)
+        except HttpError as exc:
+            log.warning("could not auto-start a %s session: %s", args.start_session, exc.message)
+            print(f"warning: could not start the {args.start_session} session: {exc.message}", file=sys.stderr, flush=True)
     if not args.no_browser:
         try:
             import webbrowser
@@ -597,6 +620,8 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Stopping...", flush=True)
     finally:
+        if awake is not None:
+            awake.stop()
         server.server_close()
         app.close()
     return 0

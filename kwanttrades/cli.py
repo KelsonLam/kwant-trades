@@ -60,9 +60,11 @@ def setup_logging(verbose: int = 0, log_file: str | None = DEFAULT_LOG) -> None:
             h.close()
     root.setLevel(logging.DEBUG if verbose > 1 else logging.INFO)
     flt = _RedactFilter()
-    con = logging.StreamHandler(sys.stderr)
-    con.setLevel(logging.DEBUG if verbose > 1 else logging.INFO if verbose else logging.WARNING)
-    handlers: list[logging.Handler] = [con]
+    handlers: list[logging.Handler] = []
+    if sys.stderr is not None:  # no console when started in the background (pythonw)
+        con = logging.StreamHandler(sys.stderr)
+        con.setLevel(logging.DEBUG if verbose > 1 else logging.INFO if verbose else logging.WARNING)
+        handlers.append(con)
     if log_file:
         try:
             Path(log_file).parent.mkdir(parents=True, exist_ok=True)
@@ -393,6 +395,12 @@ def cmd_web(args, cfg: Config, engine_factory, news_factory) -> int:
         argv.append("--remote")
     if getattr(args, "tailscale", False):
         argv.append("--tailscale")
+    if getattr(args, "wait_tailscale", 0):
+        argv += ["--wait-tailscale", str(args.wait_tailscale)]
+    if getattr(args, "keep_awake", False):
+        argv.append("--keep-awake")
+    if getattr(args, "start_session", None):
+        argv += ["--start-session", args.start_session]
     if getattr(args, "host", None):
         argv += ["--host", args.host]
     if getattr(args, "behind_proxy", False):
@@ -477,6 +485,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="opt-in: password login (KWANT_WEB_PASSWORD in .env) and listen on your network, e.g. for your phone")
     s.add_argument("--tailscale", action="store_true",
                    help="password login, reachable ONLY through your Tailscale network (recommended for phone access)")
+    s.add_argument("--wait-tailscale", type=int, default=0, metavar="SECONDS",
+                   help="with --tailscale: wait up to this long for Tailscale to connect (useful at startup)")
+    s.add_argument("--keep-awake", action="store_true",
+                   help="keep Windows awake from 20 min before the open until 15 min after the close")
+    s.add_argument("--start-session", choices=["shadow", "paper", "alpaca_paper"],
+                   help="start this session automatically once the dashboard is up (never live)")
     s.add_argument("--host", choices=["127.0.0.1", "0.0.0.0"], help="bind address (0.0.0.0 needs --remote)")
     s.add_argument("--behind-proxy", action="store_true", help="trust X-Forwarded-* headers from a reverse proxy (remote mode)")
     s.add_argument("--allowed-host", action="append", default=[], metavar="NAME",
