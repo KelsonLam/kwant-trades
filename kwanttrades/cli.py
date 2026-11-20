@@ -232,14 +232,30 @@ def cmd_scan(args, cfg: Config, engine_factory, news_factory) -> int:
     provider, name = _provider(args, syms, clock)
     now = clock.now if clock else now
     journal = Journal(":memory:")
-    session = TradingSession(cfg, provider, None, _engine(cfg, engine_factory), journal, news=_news(args, cfg, news_factory),
+    engine = _engine(cfg, engine_factory)
+    session = TradingSession(cfg, provider, None, engine, journal, news=_news(args, cfg, news_factory),
                              mode="scan", clock=clock, data_name=name)
+    _attach_learning(session, cfg, journal, engine, Path(cfg.broker.db_path).expanduser().parent / "learned.json")
     res = session.step(now, symbols=syms)
     if args.json:
         _out(json.dumps(session.snapshot(), indent=1))
     else:
         _out(format_scan(res, name, args.top))
     return 0
+
+
+def _attach_learning(session, cfg: Config, journal, engine, path) -> None:
+    """Apply learned overrides (data/learned.json) to the engine and attach the learning hub. Learning itself only
+    runs for paper and alpaca_paper sessions; scans just see the learned idea adjustments."""
+    try:
+        from kwanttrades.learning import Learner, LearningHub
+
+        learner = Learner(cfg, path, journal)
+        learner.apply_engine(engine)
+        learner.listeners.append(lambda: learner.apply_engine(engine))
+        session.learning = LearningHub(cfg, journal, learner)
+    except Exception as exc:  # learning must never stop the program from running
+        log.warning("learning unavailable: %s", exc)
 
 
 def _live_banner(mode: str) -> None:
@@ -264,8 +280,13 @@ def cmd_session(args, cfg: Config, engine_factory, news_factory, shadow: bool) -
         except Exception as exc:
             raise CliError(f"cannot start {mode}: {exc}") from exc
     _live_banner(mode)
-    session = TradingSession(cfg, provider, broker, _engine(cfg, engine_factory), journal, news=_news(args, cfg, news_factory),
+    engine = _engine(cfg, engine_factory)
+    session = TradingSession(cfg, provider, broker, engine, journal, news=_news(args, cfg, news_factory),
                              mode=mode, clock=clock, data_name=name)
+    if mode != "alpaca_live":  # live runs exactly as configured: nothing learned is applied, nothing is learned
+        from kwanttrades.learning import learned_path_for
+
+        _attach_learning(session, cfg, journal, engine, learned_path_for(journal))
     session.universe = syms
     _out(f"Kwant Trades {mode} session: {len(syms)} symbols, data source {name}. Press Ctrl+C to stop.")
     try:
@@ -489,8 +510,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="with --tailscale: wait up to this long for Tailscale to connect (useful at startup)")
     s.add_argument("--keep-awake", action="store_true",
                    help="keep Windows awake from 20 min before the open until 15 min after the close")
-    s.add_argument("--start-session", choices=["shadow", "paper", "alpaca_paper"],
-                   help="start this session automatically once the dashboard is up (never live)")
+    s.add_argument("--start-session", choices=["auto", "shadow", "paper", "alpaca_paper"],
+                   help="start this session automatically once the dashboard is up; auto = the current graduation "
+                        "stage (paper, or alpaca_paper once graduated). Never live")
     s.add_argument("--host", choices=["127.0.0.1", "0.0.0.0"], help="bind address (0.0.0.0 needs --remote)")
     s.add_argument("--behind-proxy", action="store_true", help="trust X-Forwarded-* headers from a reverse proxy (remote mode)")
     s.add_argument("--allowed-host", action="append", default=[], metavar="NAME",

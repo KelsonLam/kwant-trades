@@ -47,7 +47,12 @@ PUBLIC_FILES = {"login.html", "css/app.css", "js/theme.js", "js/login.js", "js/p
 PUBLIC_PREFIXES = ("icons/",)
 PUBLIC_API = {"/api/login", "/api/session"}
 _BAD_CHARS = set('<>:"|?*\x00\\')
-_POST_ROUTES = ("/api/scan", "/api/config", "/api/session/start", "/api/session/stop", "/api/session/flatten", "/api/backtest")
+_POST_ROUTES = ("/api/scan", "/api/config", "/api/session/start", "/api/session/stop", "/api/session/flatten", "/api/backtest",
+                "/api/learning/freeze", "/api/learning/revert", "/api/learning/reset")
+_GET_ROUTES = ("/api/status", "/api/scan/status", "/api/ideas", "/api/signals", "/api/surface", "/api/positions",
+               "/api/equity", "/api/decisions", "/api/news", "/api/config", "/api/backtest/result", "/api/learning",
+               "/api/graduation")
+START_SESSION_CHOICES = ["auto", "shadow", "paper", "alpaca_paper"]
 _CLOSE_RE = re.compile(r"^/api/positions/([^/]+)/close$")
 
 
@@ -360,6 +365,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, app.get_config())
         if path == "/api/backtest/result":
             return self._json(200, app.backtest_result())
+        if path == "/api/learning":
+            return self._json(200, app.learning())
+        if path == "/api/graduation":
+            return self._json(200, app.graduation())
         self._error(404, "Not found.")
 
     def _login(self, body: Any) -> None:
@@ -386,8 +395,7 @@ class Handler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _is_get_route(path: str) -> bool:
-        return path in ("/api/status", "/api/scan/status", "/api/ideas", "/api/signals", "/api/surface", "/api/positions",
-                        "/api/equity", "/api/decisions", "/api/news", "/api/config", "/api/backtest/result")
+        return path in _GET_ROUTES
 
     @staticmethod
     def _post(app: WebApp, path: str, m: re.Match | None, body: Any) -> Any:
@@ -411,6 +419,12 @@ class Handler(BaseHTTPRequestHandler):
             return app.flatten()
         if path == "/api/backtest":
             return app.start_backtest(body)
+        if path == "/api/learning/freeze":
+            return app.learning_freeze(body)
+        if path == "/api/learning/revert":
+            return app.learning_revert(body)
+        if path == "/api/learning/reset":
+            return app.learning_reset(body)
         raise HttpError(404, "Not found.")
 
 
@@ -516,6 +530,30 @@ def remote_banner(port: int, host: str) -> str:
     return "\n".join(lines)
 
 
+def resolve_start_mode(app: WebApp, choice: str) -> str:
+    """The session mode for --start-session. "auto" follows the graduation stage; never "alpaca_live"."""
+    mode = app.stage_session_mode() if choice == "auto" else choice
+    if mode not in ("shadow", "paper", "alpaca_paper"):  # belt and braces: live can never be auto-started
+        mode = "paper"
+    return mode
+
+
+def auto_start(app: WebApp, choice: str) -> str | None:
+    mode = resolve_start_mode(app, choice)
+    if choice == "auto" and app.stage.stage == "alpaca_paper" and mode == "paper":
+        print("warning: the stage is alpaca_paper but no Alpaca keys were found; starting the built-in paper simulator.",
+              file=sys.stderr, flush=True)
+    try:
+        app.start_session(mode)
+        log.info("auto-started a %s session", mode)
+        print(f"Started a {mode} session automatically" + (" (auto: current stage)." if choice == "auto" else "."), flush=True)
+        return mode
+    except HttpError as exc:
+        log.warning("could not auto-start a %s session: %s", mode, exc.message)
+        print(f"warning: could not start the {mode} session: {exc.message}", file=sys.stderr, flush=True)
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     import os
 
@@ -543,8 +581,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="with --tailscale: wait up to this long for Tailscale to connect (useful at startup)")
     ap.add_argument("--keep-awake", action="store_true",
                     help="ask Windows not to sleep from 20 min before the open until 15 min after the close")
-    ap.add_argument("--start-session", choices=["shadow", "paper", "alpaca_paper"],
-                    help="start this session as soon as the dashboard is up (live trading can never be auto-started)")
+    ap.add_argument("--start-session", choices=START_SESSION_CHOICES,
+                    help="start this session as soon as the dashboard is up; auto = the current graduation stage "
+                         "(paper, or alpaca_paper once graduated). Live trading can never be auto-started")
     args = ap.parse_args(argv)
     if not 0 <= args.port <= 65535:
         print("error: --port must be between 0 and 65535", file=sys.stderr)
@@ -601,13 +640,7 @@ def main(argv: list[str] | None = None) -> int:
 
         awake = KeepAwake().start()
     if args.start_session:
-        try:
-            app.start_session(args.start_session)
-            log.info("auto-started a %s session", args.start_session)
-            print(f"Started a {args.start_session} session automatically.", flush=True)
-        except HttpError as exc:
-            log.warning("could not auto-start a %s session: %s", args.start_session, exc.message)
-            print(f"warning: could not start the {args.start_session} session: {exc.message}", file=sys.stderr, flush=True)
+        auto_start(app, args.start_session)
     if not args.no_browser:
         try:
             import webbrowser

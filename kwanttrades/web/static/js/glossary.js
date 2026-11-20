@@ -47,6 +47,9 @@ export const GLOSSARY = {
   data_delay: { name: "Data delay", def: "Free market data can be delayed. Prices shown may not match your broker's live quotes." },
   model: { name: "Model", def: "Which test found it: 'svi_residual' = off the fitted curve; 'parity' = calls and puts disagree; 'butterfly'/'calendar' = prices that break basic no-arbitrage rules." },
   rel_volume: { name: "Relative volume", def: "Opening-range volume compared with a normal day. Above 1.2× gives a breakout more credibility." },
+  out_of_sample: { name: "Fresh trades", def: "Trades opened after the most recent learning change. They show whether the change works on trades it was not fitted to." },
+  ci: { name: "90% range", def: "The range the true average most likely lies in, given how much results vary. If even its low end is above zero, the edge is unlikely to be luck." },
+  sigma: { name: "Normal day's move", def: "How far the stock usually moves in one day, according to option prices. A 2× move is unusual." },
 };
 
 export const STRATEGIES = {
@@ -77,6 +80,18 @@ export const EXIT_REASONS = {
   expired: "Expired",
   flatten_all: "Flatten all",
 };
+export const CAUSES = {
+  direction_wrong: "Direction was wrong",
+  too_slow: "Right direction, but the move came too slowly (time decay)",
+  vol_over: "The stock moved less than the model expected (volatility overestimated)",
+  vol_under: "The stock moved more than the model expected (volatility underestimated)",
+  stopped_recovered: "Stopped out, then it recovered",
+  costs: "Costs ate the edge",
+  gap: "Big overnight/news gap",
+  unknown: "Not enough data to tell",
+  win: "Win",
+};
+
 export const exitLabel = (r) => (r ? EXIT_REASONS[r] || String(r).replace(/_/g, " ") : "—");
 
 export const COMPONENTS = [

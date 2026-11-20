@@ -12,6 +12,7 @@ export const PAGES = [
   { id: "volatility", title: "Volatility", icon: "volatility", tint: "purple", sub: "Smile chart and mispriced options" },
   { id: "news", title: "News", icon: "news", tint: "orange", sub: "Headlines the model has read" },
   { id: "backtest", title: "Backtest", icon: "backtest", tint: "teal", sub: "Replay the rules on past days" },
+  { id: "learning", title: "Learning", icon: "learning", tint: "green", sub: "Why trades lost and what it changed" },
 ];
 
 const tile = (name, tint) => h("span", { class: `ico-tile tint-${tint}` }, icon(name, { size: 18 }));

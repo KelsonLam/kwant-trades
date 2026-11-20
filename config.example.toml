@@ -59,3 +59,17 @@ enabled = true                    # score news headlines with the built-in finan
 max_headlines_per_symbol = 12
 lookback_hours = 24
 half_life_hours = 6.0
+
+[graduation]
+# When the built-in paper simulator has earned a move to your Alpaca PAPER (practice) account. Every check is on
+# closed simulator trades. Nothing here can ever switch on live trading (real money); see README "Going live".
+min_closed_trades = 40            # finished trades needed before judging
+min_trading_days = 20             # the trades must span at least this many trading days
+min_profit_factor = 1.3           # money won / money lost
+max_drawdown_pct = 0.10           # worst dip of closed-trade P&L, as a fraction of starting_equity
+min_profitable_weeks_frac = 0.6   # share of weeks (with trades) that made money ...
+min_weeks = 4                     # ... over at least this many weeks
+require_positive_ci = true        # the cautious end of the 90% range of average P&L / max loss must be above 0
+out_of_sample_trades = 25         # trades opened AFTER the latest learning change that must pass the same checks
+auto_switch = true                # switch the running dashboard session to alpaca_paper when everything passes
+                                  # (false = the dashboard only tells you it is ready)

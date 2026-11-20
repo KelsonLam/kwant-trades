@@ -258,7 +258,7 @@ button { cursor: pointer; }
 .ico-fill { fill: currentColor; stroke: none; }
 .ico-tile { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #fff; }
 .tint-blue { background: #2f6fe4; } .tint-purple { background: #8944ab; } .tint-orange { background: #c76a00; } .tint-teal { background: #0e8a8a; }
-.tint-gray { background: #6b6b70; } .tint-indigo { background: #5856d6; } .tint-red { background: #d70015; }
+.tint-gray { background: #6b6b70; } .tint-indigo { background: #5856d6; } .tint-red { background: #d70015; } .tint-green { background: #248a3d; }
 .head-with { display: inline-flex; align-items: center; gap: 10px; }
 
 /* chips, badges, buttons */
@@ -701,3 +701,15 @@ body.login-page { height: auto; min-height: 100%; overflow: auto; display: grid;
 .login .btn.primary { width: 100%; }
 .login-foot { color: var(--ink-2); font-size: 13px; text-align: center; }
 .login-brand .brand-edge { margin-left: .35em; }
+
+/* ---------------------------------------------------------------- learning + road to Alpaca (built from existing pieces) */
+.ring-wrap { position: relative; display: inline-grid; place-items: center; flex: none; }
+.ring-num { position: absolute; inset: 0; display: grid; place-items: center; font: 700 12px/1 var(--font); }
+.sub-stack { display: grid; gap: 3px; }
+.cause-line { color: var(--ink); }
+.road-lines { display: grid; gap: 7px; margin-top: 2px; }
+.road-line { display: grid; gap: 4px; }
+.road-line .risk-line { font-size: 13px; color: var(--ink-2); }
+.crit-ico { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--cell-2); color: var(--ink-2); }
+.crit-ico.pass { background: var(--gain-soft); color: var(--gain); }
+.row-btn { flex: none; }

@@ -26,6 +26,9 @@ const ICONS = {
   eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
   pause: "M9 5v14M15 5v14",
   warn: "M12 4l9 16H3zM12 10v4M12 17v.5",
+  learning: "M2 9l10-5 10 5-10 5zM6 11v5c0 1.6 2.7 3 6 3s6-1.4 6-3v-5M22 9v6",
+  flag: "M5 21V4M5 4h12l-2.5 4L17 12H5",
+  cross: "M7 7l10 10M17 7L7 17",
 };
 
 export function icon(name, { size = 22, cls = "" } = {}) {

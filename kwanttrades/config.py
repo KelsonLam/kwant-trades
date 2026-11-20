@@ -78,12 +78,28 @@ class BrokerConfig:
 
 
 @dataclass
+class GraduationConfig:
+    """When the built-in paper simulator has earned a move to the Alpaca PAPER account. Live trading is never
+    switched on by this (or by anything else in the program); see README "Going live"."""
+    min_closed_trades: int = 40
+    min_trading_days: int = 20
+    min_profit_factor: float = 1.3
+    max_drawdown_pct: float = 0.10  # of starting equity, on closed-trade P&L
+    min_profitable_weeks_frac: float = 0.6
+    min_weeks: int = 4
+    require_positive_ci: bool = True  # 90% CI lower bound of mean (P&L / max loss) per trade must be > 0
+    out_of_sample_trades: int = 25  # qualifying trades needed AFTER the most recent learning change
+    auto_switch: bool = True  # switch the running paper session to alpaca_paper when everything passes
+
+
+@dataclass
 class Config:
     risk: RiskConfig = field(default_factory=RiskConfig)
     scan: ScanConfig = field(default_factory=ScanConfig)
     signals: SignalConfig = field(default_factory=SignalConfig)
     sentiment: SentimentConfig = field(default_factory=SentimentConfig)
     broker: BrokerConfig = field(default_factory=BrokerConfig)
+    graduation: GraduationConfig = field(default_factory=GraduationConfig)
     poll_seconds: int = 60
 
 

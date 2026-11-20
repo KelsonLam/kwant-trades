@@ -56,6 +56,40 @@ CREATE INDEX IF NOT EXISTS ix_orders_day ON orders(day);
 CREATE INDEX IF NOT EXISTS ix_equity_day ON equity(day);
 """
 
+# Added for the supervised learning loop (schema version 2). Created on demand, so an existing journal simply
+# gains these tables; `_migrate` adds any column a partially created older table is missing.
+_LEARNING_SCHEMA = """
+CREATE TABLE IF NOT EXISTS entry_features (
+    order_id TEXT PRIMARY KEY, position_id TEXT, mode TEXT, ts TEXT, features TEXT
+);
+CREATE TABLE IF NOT EXISTS mark_paths (
+    position_id TEXT, ts TEXT, mark REAL, underlying REAL, phase TEXT
+);
+CREATE TABLE IF NOT EXISTS post_mortems (
+    position_id TEXT PRIMARY KEY, mode TEXT, symbol TEXT, strategy TEXT, opened TEXT, closed TEXT,
+    realized_pnl REAL, max_loss_total REAL, r REAL, win INTEGER, exit_reason TEXT, cause TEXT, cause_text TEXT,
+    features TEXT, outcome TEXT, tracking_done INTEGER DEFAULT 0, updated TEXT
+);
+CREATE TABLE IF NOT EXISTS learning_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, kind TEXT, message TEXT, payload TEXT
+);
+"""
+_LEARNING_INDEXES = """
+CREATE INDEX IF NOT EXISTS ix_marks_pos ON mark_paths(position_id, ts);
+CREATE INDEX IF NOT EXISTS ix_feat_pos ON entry_features(position_id);
+CREATE INDEX IF NOT EXISTS ix_pm_closed ON post_mortems(closed);
+"""
+SCHEMA_VERSION = 2
+_LEARNING_COLUMNS = {
+    "entry_features": {"order_id": "TEXT", "position_id": "TEXT", "mode": "TEXT", "ts": "TEXT", "features": "TEXT"},
+    "mark_paths": {"position_id": "TEXT", "ts": "TEXT", "mark": "REAL", "underlying": "REAL", "phase": "TEXT"},
+    "post_mortems": {"position_id": "TEXT", "mode": "TEXT", "symbol": "TEXT", "strategy": "TEXT", "opened": "TEXT",
+                     "closed": "TEXT", "realized_pnl": "REAL", "max_loss_total": "REAL", "r": "REAL", "win": "INTEGER",
+                     "exit_reason": "TEXT", "cause": "TEXT", "cause_text": "TEXT", "features": "TEXT", "outcome": "TEXT",
+                     "tracking_done": "INTEGER DEFAULT 0", "updated": "TEXT"},
+    "learning_events": {"ts": "TEXT", "kind": "TEXT", "message": "TEXT", "payload": "TEXT"},
+}
+
 
 # ---------------------------------------------------------------- (de)serialisation helpers
 
@@ -169,7 +203,21 @@ class Journal:
         self._conn.row_factory = sqlite3.Row
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Bring an older journal up to SCHEMA_VERSION without touching existing rows."""
+        ver = int(self._conn.execute("PRAGMA user_version").fetchone()[0] or 0)
+        self._conn.executescript(_LEARNING_SCHEMA)
+        for table, cols in _LEARNING_COLUMNS.items():
+            have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            for col, decl in cols.items():
+                if col not in have:
+                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+        self._conn.executescript(_LEARNING_INDEXES)  # after the columns exist
+        if ver < SCHEMA_VERSION:
+            self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def close(self) -> None:
         with self._lock:
@@ -331,3 +379,78 @@ class Journal:
             if od == cd and cd >= earliest and cd <= now.astimezone(NY).date():
                 n += 1
         return n
+
+    # ------------------------------------------------------------------ learning: entry features
+    def save_entry_features(self, order_id: str, position_id: str | None, mode: str, ts: datetime, features: dict) -> None:
+        self._exec("INSERT OR REPLACE INTO entry_features VALUES (?,?,?,?,?)",
+                   (order_id, position_id, mode, _dt(ts), json.dumps(_enc(features), allow_nan=False, default=str)))
+
+    def entry_features(self, position_id: str) -> dict | None:
+        """Features recorded when the position was opened, found by position id or via its opening order."""
+        rows = self._query("SELECT features FROM entry_features WHERE position_id=? LIMIT 1", (position_id,))
+        if not rows:
+            rows = self._query(
+                "SELECT f.features FROM entry_features f JOIN orders o ON o.id = f.order_id "
+                "WHERE o.position_id=? AND o.action='open' LIMIT 1", (position_id,))
+        return _dec(json.loads(rows[0]["features"])) if rows else None
+
+    # ------------------------------------------------------------------ learning: mark paths
+    def record_mark(self, position_id: str, ts: datetime, mark: float, underlying: float | None, phase: str = "open") -> None:
+        self._exec("INSERT INTO mark_paths VALUES (?,?,?,?,?)",
+                   (position_id, _dt(ts), float(mark), None if underlying is None else float(underlying), phase))
+
+    def marks(self, position_id: str) -> list[dict]:
+        rows = self._query("SELECT ts, mark, underlying, phase FROM mark_paths WHERE position_id=? ORDER BY ts, rowid",
+                           (position_id,))
+        return [{"ts": _parse_dt(r["ts"]), "mark": r["mark"], "underlying": r["underlying"], "phase": r["phase"]} for r in rows]
+
+    def last_mark_ts(self, position_id: str) -> datetime | None:
+        rows = self._query("SELECT MAX(ts) AS t FROM mark_paths WHERE position_id=?", (position_id,))
+        return _parse_dt(rows[0]["t"]) if rows and rows[0]["t"] else None
+
+    # ------------------------------------------------------------------ learning: post-mortems
+    def save_post_mortem(self, pm: dict) -> None:
+        enc = lambda x: json.dumps(_enc(x or {}), allow_nan=False, default=str)  # noqa: E731
+        self._exec(
+            "INSERT OR REPLACE INTO post_mortems VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (pm["position_id"], pm.get("mode"), pm.get("symbol"), pm.get("strategy"), _dt(pm.get("opened")),
+             _dt(pm.get("closed")), pm.get("realized_pnl"), pm.get("max_loss_total"), pm.get("r"),
+             1 if pm.get("win") else 0, pm.get("exit_reason"), pm.get("cause"), pm.get("cause_text"),
+             enc(pm.get("features")), enc(pm.get("outcome")), 1 if pm.get("tracking_done") else 0,
+             _dt(pm.get("updated") or datetime.now(NY))),
+        )
+
+    @staticmethod
+    def _pm_from_row(r: sqlite3.Row) -> dict:
+        return {
+            "position_id": r["position_id"], "mode": r["mode"], "symbol": r["symbol"], "strategy": r["strategy"],
+            "opened": _parse_dt(r["opened"]), "closed": _parse_dt(r["closed"]), "realized_pnl": r["realized_pnl"],
+            "max_loss_total": r["max_loss_total"], "r": r["r"], "win": bool(r["win"]), "exit_reason": r["exit_reason"],
+            "cause": r["cause"], "cause_text": r["cause_text"], "features": _dec(json.loads(r["features"] or "{}")),
+            "outcome": _dec(json.loads(r["outcome"] or "{}")), "tracking_done": bool(r["tracking_done"]),
+            "updated": _parse_dt(r["updated"]),
+        }
+
+    def post_mortems(self, mode: str | None = None) -> list[dict]:
+        """Oldest first (by close time)."""
+        sql = "SELECT * FROM post_mortems" + (" WHERE mode=?" if mode else "") + " ORDER BY closed, rowid"
+        return [self._pm_from_row(r) for r in self._query(sql, (mode,) if mode else ())]
+
+    def post_mortem(self, position_id: str) -> dict | None:
+        rows = self._query("SELECT * FROM post_mortems WHERE position_id=?", (position_id,))
+        return self._pm_from_row(rows[0]) if rows else None
+
+    def post_mortem_ids(self) -> set[str]:
+        return {r["position_id"] for r in self._query("SELECT position_id FROM post_mortems")}
+
+    # ------------------------------------------------------------------ learning: events (changes, stage switches)
+    def record_event(self, kind: str, message: str, payload: dict | None = None, ts: datetime | None = None) -> None:
+        ts = (ts or datetime.now(NY)).astimezone(NY)
+        self._exec("INSERT INTO learning_events(ts, kind, message, payload) VALUES (?,?,?,?)",
+                   (ts.isoformat(), kind, message, json.dumps(_enc(payload or {}), allow_nan=False, default=str)))
+
+    def events(self, kind: str | None = None, limit: int = 50) -> list[dict]:
+        sql = "SELECT * FROM learning_events" + (" WHERE kind=?" if kind else "") + " ORDER BY id DESC LIMIT ?"
+        rows = self._query(sql, ((kind, int(limit)) if kind else (int(limit),)))
+        return [{"id": r["id"], "ts": _parse_dt(r["ts"]), "kind": r["kind"], "message": r["message"],
+                 "payload": _dec(json.loads(r["payload"] or "{}"))} for r in rows]

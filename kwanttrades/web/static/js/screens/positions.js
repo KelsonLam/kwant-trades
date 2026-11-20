@@ -165,9 +165,13 @@ function closedView() {
         h("div", { class: "list-meta" }, h("span", null, `${list.length} closed · ${wins} winner${wins === 1 ? "" : "s"} · total `), signed(signedMoney(total), total)),
         group(list.map((p) => row({
           title: h("span", { class: "sym" }, p.symbol ?? "—"),
-          sub: `${strategyInfo(p.strategy, p.strategy_label).label} · ${exitLabel(p.exit_reason)} · ${dateNY(p.closed)} ${timeNY(p.closed)}`,
+          sub: h("span", { class: "sub-stack" },
+            h("span", null, `${strategyInfo(p.strategy, p.strategy_label).label} · ${exitLabel(p.exit_reason)} · ${dateNY(p.closed)} ${timeNY(p.closed)}`),
+            p.postmortem?.cause_text ? h("span", { class: "cause-line" }, String(p.postmortem.cause_text)) : null),
           trailing: signed(signedMoney(p.realized_pnl), p.realized_pnl),
-        })), { label: "Closed trades" }));
+          label: `${p.symbol}, ${signedMoney(p.realized_pnl)}. ${p.postmortem?.cause_text ?? exitLabel(p.exit_reason)}`,
+        })), { label: "Closed trades" }),
+        h("p", { class: "group-foot" }, "The line under each trade says, in plain words, why it won or lost. More on the Learning page."));
     },
     empty: { title: "No closed trades yet", hint: "Finished trades and why they closed (target, stop, end of day…) will be listed here." },
   });

@@ -16,6 +16,7 @@ import * as volatility from "./screens/volatility.js";
 import * as activity from "./screens/activity.js";
 import * as backtest from "./screens/backtest.js";
 import * as settings from "./screens/settings.js";
+import * as learning from "./screens/learning.js";
 
 applyTheme();
 watchSystem();
@@ -27,14 +28,14 @@ const TABS = [
   { id: "portfolio", label: "Portfolio", icon: "portfolio", mod: positions },
   { id: "more", label: "More", icon: "more", mod: more },
 ];
-const MORE_PAGES = { signals, volatility, news: activity, backtest, settings };
+const MORE_PAGES = { signals, volatility, news: activity, backtest, learning, settings };
 const MORE_TITLES = Object.fromEntries([...more.PAGES.map((p) => [p.id, p.title]), ["settings", "Settings"]]);
 
 // Old bookmarks (#/overview, #/opportunities, ...) map onto the new structure.
 const LEGACY = {
   overview: ["home"], opportunities: ["ideas"], positions: ["portfolio"], activity: ["portfolio", "activity"],
   signals: ["more", "signals"], volatility: ["more", "volatility"], news: ["more", "news"],
-  backtest: ["more", "backtest"], settings: ["more", "settings"],
+  backtest: ["more", "backtest"], settings: ["more", "settings"], learning: ["more", "learning"],
 };
 
 function parseHash() {
@@ -333,6 +334,8 @@ function defineResources() {
   store.define("decisions", () => api.decisions(100), { interval: 12000 });
   store.define("news", () => api.news("ALL"), { interval: 15000 });
   store.define("backtest", api.backtestResult, { interval: () => (store.data("backtest")?.state === "running" ? 1000 : 15000) });
+  store.define("learning", api.learning, { interval: 20000 });
+  store.define("graduation", api.graduation, { interval: 20000 });
 
   let prevScan = null;
   store.subscribe("scan", (st) => {
@@ -352,6 +355,17 @@ function defineResources() {
     const t = st?.data?.trades_today;
     if (isNum(prevTrades) && isNum(t) && t !== prevTrades) store.refreshMany(["positions", "equity", "decisions", "ideas"]);
     prevTrades = t;
+  });
+  // a stage change (graduation to Alpaca paper, or a safety fallback) is announced once
+  let prevStage = null;
+  store.subscribe("status", (st) => {
+    const s2 = st?.data?.stage;
+    if (prevStage && s2 && s2 !== prevStage) {
+      const msg = s2 === "alpaca_paper" ? "Graduated: trading moved to your Alpaca paper (practice) account." : (st.data.stage_alert || "Moved back to the built-in paper simulator.");
+      announce(msg); toast(msg, s2 === "alpaca_paper" ? "info" : "error");
+      store.refreshMany(["graduation", "learning"]);
+    }
+    if (s2) prevStage = s2;
   });
   let prevBt = null;
   store.subscribe("backtest", (st) => {

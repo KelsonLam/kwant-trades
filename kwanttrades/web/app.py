@@ -30,6 +30,17 @@ from kwanttrades.app.session import (
 )
 from kwanttrades.config import Config
 from kwanttrades.execution.journal import Journal
+from kwanttrades.learning import (
+    Learner,
+    LearningError,
+    LearningHub,
+    StageStore,
+    learned_path_for,
+    stage_path_for,
+)
+from kwanttrades.learning import evaluate as graduation_evaluate
+from kwanttrades.learning.graduation import LIVE_HOW, LIVE_NOTE
+from kwanttrades.learning.postmortem import CAUSES
 from kwanttrades.types import NY, DirectionalSignal, now_ny
 from kwanttrades.web import configio
 from kwanttrades.web.serialize import (
@@ -49,6 +60,8 @@ NEWS_TTL = 600.0
 SESSION_MODES = ("shadow", "paper", "alpaca_paper")
 LIVE_REFUSAL = ("Live trading (real money) cannot be started from the web dashboard. It can only be enabled by the "
                 "owner from the command line with the explicit safety setting described in the README.")
+MAX_ORDER_FAILURES = 3  # consecutive Alpaca rejections/errors before falling back to the paper simulator
+RECONCILE_STRIKES = 2  # consecutive steps on which Alpaca's positions must disagree with the journal
 
 
 class HttpError(Exception):
@@ -131,7 +144,7 @@ class WebApp:
     def __init__(self, cfg: Config, provider: Any, *, provider_name: str | None = None, journal: Journal | None = None,
                  engine_factory: Callable[[Config], Any] | None = None, news: Any = None,
                  clock: Callable[[], datetime] | None = None, config_path: str | os.PathLike = "config.toml",
-                 paper_broker: Any = None):
+                 paper_broker: Any = None, alpaca_factory: Callable[[], Any] | None = None):
         self.cfg = cfg
         self.provider = provider
         self.provider_name = provider_name or getattr(provider, "name", None) or type(provider).__name__
@@ -152,6 +165,18 @@ class WebApp:
         self.paper_broker = paper_broker
         self.active_broker: Any = paper_broker
         self.active_mode = "paper"
+        self.alpaca_factory = alpaca_factory  # tests inject a fake; default builds AlpacaBroker in paper mode
+
+        # supervised learning + graduation (files next to the journal; memory only for an in-memory journal)
+        self.learner = Learner(cfg, learned_path_for(self.journal), self.journal, clock)
+        self.hub = LearningHub(cfg, self.journal, self.learner)
+        self.learner.apply_engine(self.engine)
+        self.learner.listeners.append(lambda: self.learner.apply_engine(self.engine))
+        self.stage = StageStore(stage_path_for(self.journal))
+        self.hub.callbacks.append(self._after_step)
+        self._switching = False
+        self._recon_strikes = 0
+        self._grad_checked = False
 
         self._lock = threading.RLock()
         self._cfg_lock = threading.Lock()
@@ -257,6 +282,8 @@ class WebApp:
                        "daily_loss_limit": r.daily_loss_limit_pct * max(eq - day, 0.0),
                        "max_loss_per_trade": r.max_loss_per_trade_pct * eq},
             "session_error": self._session_error,
+            "stage": self.stage.stage, "stage_ready": bool(self.stage.data.get("ready")),
+            "stage_alert": self.stage.data.get("alert"),
         })
 
     def _trades_today(self, now: datetime) -> int:
@@ -271,6 +298,7 @@ class WebApp:
             self.scan_session = TradingSession(
                 self.cfg, _ProgressProvider(self.provider, self), None, _ProgressEngine(self.engine, self), self.journal,
                 news=self.news, mode="scan", clock=self.clock, data_name=self.provider_name)
+            self.scan_session.learning = self.hub
         return self.scan_session
 
     def start_scan(self, symbols: Any) -> dict:
@@ -404,6 +432,14 @@ class WebApp:
         def render(p: Any) -> dict:
             d = position_dict(p)
             d.update(position_extras(p))
+            if not p.is_open:
+                pm = None
+                try:
+                    pm = self.journal.post_mortem(p.id)
+                except Exception:  # pragma: no cover
+                    pm = None
+                d["postmortem"] = None if pm is None else {
+                    "cause": pm["cause"], "cause_label": CAUSES.get(pm["cause"], pm["cause"]), "cause_text": pm["cause_text"]}
             return d
 
         return jsonsafe({"open": [render(p) for p in open_ps], "closed": [render(p) for p in closed_ps]})
@@ -555,6 +591,8 @@ class WebApp:
             session = TradingSession(self.cfg, self.provider, broker, self.engine, self.journal, news=self.news,
                                      mode=mode, clock=self.clock, data_name=self.provider_name)
             session.universe = list(self.cfg.scan.universe)
+            session.learning = self.hub
+            self._recon_strikes = 0
             self.run_session = session
             self._seen_run_last = None
             if broker is not None:
@@ -570,6 +608,8 @@ class WebApp:
             raise HttpError(400, "No Alpaca paper keys were found on this computer. Add them to the .env file "
                                  "(see the README), restart the dashboard, then try again.")
         try:
+            if self.alpaca_factory is not None:
+                return self.alpaca_factory()
             from kwanttrades.execution.alpaca import AlpacaBroker
 
             return AlpacaBroker(dataclasses.replace(self.cfg.broker, mode="alpaca_paper"), journal=self.journal)
@@ -605,6 +645,7 @@ class WebApp:
                 self._flatten_session = TradingSession(
                     self.cfg, self.provider, self.active_broker, self.engine, self.journal, mode=self.active_mode,
                     clock=self.clock, data_name=self.provider_name)
+                self._flatten_session.learning = self.hub
             return self._flatten_session
 
     def close_position(self, position_id: str) -> dict:
@@ -618,6 +659,7 @@ class WebApp:
         if position_id not in open_ids:
             raise HttpError(404, "Position not found or already closed.")
         out = sess.close_position(position_id, self.now())
+        self._postmortems_now(sess)
         ex = out.get("exit") or {}
         if out.get("ok"):
             pnl = ex.get("pnl")
@@ -637,6 +679,7 @@ class WebApp:
         if n_open == 0:
             return {"ok": True, "message": "There are no open positions."}
         exits = sess.flatten_all(self.now())
+        self._postmortems_now(sess)
         done = sum(1 for e in exits if e.get("status") == "filled")
         ok = done == n_open
         return jsonsafe({"ok": ok, "message": f"Closed {done} of {n_open} position{'s' if n_open != 1 else ''}."
@@ -706,6 +749,202 @@ class WebApp:
             "caveats": r.get("caveats", []), "errors": r.get("errors", []), "error": b.get("error"),
             "request": b.get("request"),
         })
+
+    # ------------------------------------------------------------------ learning
+    def _postmortems_now(self, sess: TradingSession) -> None:
+        """Write post-mortems for positions just closed by hand (instead of waiting for the next session step)."""
+        try:
+            with sess._lock:
+                self.hub.after_step(sess, self.now())
+        except Exception as exc:  # pragma: no cover
+            log.warning("post-mortem after a manual close failed: %s", exc)
+
+    def _pm_dict(self, pm: dict) -> dict:
+        f, o = pm.get("features") or {}, pm.get("outcome") or {}
+        keep_o = ("move_pct", "move_sigma", "direction_right", "realized_vs_implied", "realized_vs_model", "hold_minutes",
+                  "sessions_held", "entry_spot", "exit_spot", "cost_total", "gross_pnl", "gap_sigma", "best_post_pnl",
+                  "recovered", "entry_price", "exit_price")
+        keep_f = ("direction_call", "composite_direction", "composite_confidence", "vol_edge", "risk_multiplier",
+                  "orb_state", "entry_bucket_min", "dte_entry", "model_ev", "pop", "score", "entry_iv", "cost_frac",
+                  "intraday", "stop_loss_pct", "take_profit_pct", "recorded")
+        return {
+            "position_id": pm["position_id"], "symbol": pm["symbol"], "strategy": pm["strategy"],
+            "strategy_label": strategy_label(pm["strategy"] or ""), "mode": pm["mode"], "opened": pm["opened"],
+            "closed": pm["closed"], "pnl": pm["realized_pnl"], "r": pm["r"], "win": pm["win"],
+            "exit_reason": pm["exit_reason"], "cause": pm["cause"], "cause_label": CAUSES.get(pm["cause"], pm["cause"]),
+            "cause_text": pm["cause_text"], "tracking_done": pm["tracking_done"],
+            "evidence": {**{k: f.get(k) for k in keep_f}, **{k: o.get(k) for k in keep_o}},
+        }
+
+    def _history_dict(self, h: dict, hist: list[dict]) -> dict:
+        knob = h.get("knob")
+        can = h.get("kind") == "change" and h.get("status") == "active" and not any(
+            x is not h and x.get("kind") == "change" and x.get("status") == "active" and x.get("knob") == knob
+            and str(x.get("ts")) > str(h.get("ts")) for x in hist)
+        fmt = (lambda v: self.learner.fmt(knob, v)) if knob else (lambda v: "defaults" if not v else f"{len(v)} setting(s)")
+        return {"id": h.get("id"), "kind": h.get("kind"), "ts": h.get("ts"), "knob": knob, "label": h.get("label"),
+                "before": h.get("before"), "after": h.get("after"), "display_before": fmt(h.get("before")),
+                "display_after": fmt(h.get("after")), "rule": h.get("rule"), "reason": h.get("reason"),
+                "evidence": h.get("evidence") or {}, "status": h.get("status"), "by": h.get("by"),
+                "reverted_at": h.get("reverted_at"), "revert_reason": h.get("revert_reason"),
+                "evaluation": h.get("evaluation"), "can_revert": bool(can)}
+
+    def learning(self) -> dict:
+        trades = self.hub.trades()
+        hist = self.learner.history()
+        rs = self.run_session
+        mode = rs.mode if (self._running() and rs is not None) else None
+        settings = self.learner.settings()
+        return jsonsafe({
+            "frozen": self.learner.frozen,
+            "active": mode in ("paper", "alpaca_paper"),
+            "mode": mode,
+            "postmortems": [self._pm_dict(t) for t in reversed(trades)][:200],
+            "settings": settings,
+            "changed": [x for x in settings if x["changed"]],
+            "history": [self._history_dict(h, hist) for h in reversed(hist)],
+            "summary": self.learner.status(len(trades), self.now()),
+        })
+
+    def learning_freeze(self, body: Any) -> dict:
+        if not isinstance(body, dict) or set(body) != {"frozen"} or not isinstance(body["frozen"], bool):
+            raise HttpError(400, "frozen: expected true or false")
+        self.learner.set_frozen(body["frozen"], self.now())
+        return self.learning()
+
+    def learning_revert(self, body: Any) -> dict:
+        if not isinstance(body, dict) or set(body) != {"change_id"} or not isinstance(body["change_id"], str) \
+                or not ID_RE.match(body["change_id"]):
+            raise HttpError(400, "change_id: expected the id of a change")
+        try:
+            self.learner.revert(body["change_id"], self.now())
+        except LearningError as exc:
+            raise HttpError(exc.status, exc.message) from None
+        return self.learning()
+
+    def learning_reset(self, body: Any) -> dict:
+        if body not in ({}, None):
+            raise HttpError(400, "reset takes no fields")
+        self.learner.reset(self.now())
+        return self.learning()
+
+    # ------------------------------------------------------------------ graduation (paper -> alpaca_paper)
+    def _oos_since(self) -> datetime | None:
+        ts = [t for t in (self.learner.last_change_ts(), self.stage.last_fallback_ts()) if t is not None]
+        return max(ts) if ts else None
+
+    def graduation_eval(self) -> dict:
+        return graduation_evaluate(self.journal.post_mortems("paper"), self.cfg.graduation,
+                                   float(self.cfg.broker.starting_equity), self._oos_since())
+
+    def stage_session_mode(self) -> str:
+        """The session `--start-session auto` starts: alpaca_paper once graduated (and keys exist), else paper.
+        Never live: the stage file can only hold "paper" or "alpaca_paper"."""
+        return "alpaca_paper" if self.stage.stage == "alpaca_paper" and self.alpaca_keys_present() else "paper"
+
+    def graduation(self) -> dict:
+        res = self.graduation_eval()
+        g = self.cfg.graduation
+        stage = self.stage.stage
+        keys = self.alpaca_keys_present()
+        needs = []
+        if stage == "paper" and res["pass"]:
+            if not keys:
+                needs.append("Add your Alpaca PAPER keys (ALPACA_API_KEY and ALPACA_SECRET_KEY) to the .env file yourself, "
+                             "then restart the dashboard. Kwant Trades never writes keys.")
+            if not g.auto_switch:
+                needs.append("Automatic switching is off ([graduation] auto_switch = false in config.toml): start an "
+                             "Alpaca paper session yourself from Settings.")
+        live = None
+        if stage == "alpaca_paper":
+            grad = self.stage.last_event("graduated")
+            since = [t for t in (self._oos_since(), datetime.fromisoformat(grad["ts"]) if grad else None) if t is not None]
+            ev = graduation_evaluate(self.journal.post_mortems("alpaca_paper"), g, float(self.cfg.broker.starting_equity),
+                                     max(since) if since else None)
+            live = {**ev, "note": LIVE_NOTE, "how": LIVE_HOW}
+        return jsonsafe({
+            "stage": stage, "ready": bool(res["pass"]), "auto_switch": bool(g.auto_switch), "keys_present": keys,
+            "progress": res["progress"], "criteria": res["criteria"], "out_of_sample": res["out_of_sample"],
+            "needs": needs, "last_event": self.stage.last_event(), "alert": self.stage.data.get("alert"),
+            "events": list(reversed(self.stage.data.get("events") or []))[:10], "live_readiness": live,
+        })
+
+    def _after_step(self, session: TradingSession, now: datetime, new: list[dict]) -> None:
+        """Called by the learning hub at the end of every session step."""
+        if session is not self.run_session or self._switching:
+            return
+        if session.mode == "alpaca_paper":
+            self._alpaca_safety(session, now)
+        elif session.mode == "paper" and (new or not self._grad_checked):
+            self._grad_checked = True
+            self._graduation_check(now)
+
+    def _graduation_check(self, now: datetime) -> None:
+        res = self.graduation_eval()
+        self.stage.mark_ready(res["pass"])
+        if not (res["pass"] and self.stage.stage == "paper" and self.cfg.graduation.auto_switch):
+            return
+        if not self.alpaca_keys_present():
+            return  # "ready": the dashboard shows what is needed
+        evidence = {c["id"]: {"value": c["value"], "target": c["target"], "display": c["display_value"]} for c in res["criteria"]}
+        msg = ("Graduated to Alpaca paper: every check passed on the built-in simulator, including "
+               f"{res['out_of_sample']['trades']} fresh trades since the last learning change. Orders now go to your "
+               "Alpaca PAPER (practice) account. No real money is used.")
+        ev = self.stage.set("alpaca_paper", now, "graduated", msg, evidence)
+        self.journal.record_event("stage_switch", msg, ev, now)
+        log.warning("GRADUATION: switching the running session from paper to alpaca_paper")
+        self._switch("alpaca_paper")
+
+    def _alpaca_safety(self, session: TradingSession, now: datetime) -> None:
+        if session.order_failures >= MAX_ORDER_FAILURES:
+            self._fallback(now, f"{session.order_failures} orders in a row were rejected or failed at Alpaca.")
+            return
+        fn = getattr(session.broker, "reconcile", None)
+        if fn is None:
+            return
+        try:
+            diffs = fn()
+        except Exception as exc:  # pragma: no cover
+            log.warning("reconcile failed: %s", exc)
+            diffs = None
+        if diffs is None:
+            return
+        self._recon_strikes = self._recon_strikes + 1 if diffs else 0
+        if self._recon_strikes >= RECONCILE_STRIKES:
+            self._fallback(now, "Alpaca's positions disagree with the journal (" + "; ".join(diffs[:3]) + ").")
+
+    def _fallback(self, now: datetime, reason: str) -> None:
+        msg = f"Moved back to the built-in paper simulator: {reason} Check the Alpaca dashboard before trusting it again."
+        ev = self.stage.set("paper", now, "fallback", msg, {"reason": reason}, alert=msg)
+        self.journal.record_event("stage_fallback", msg, ev, now)
+        log.error("ALPACA PAPER FALLBACK: %s", reason)
+        self._switch("paper")
+
+    def _switch(self, mode: str) -> None:
+        """Stop the running session and start `mode`, from a separate thread (the caller is the session thread)."""
+        self._switching = True
+
+        def run() -> None:
+            try:
+                self.stop_session()
+                try:
+                    self.start_session(mode)
+                except HttpError as exc:
+                    if mode != "alpaca_paper":
+                        raise
+                    msg = f"Could not start Alpaca paper ({exc.message}); stayed on the built-in paper simulator."
+                    ev = self.stage.set("paper", self.now(), "fallback", msg, {"reason": exc.message}, alert=msg)
+                    self.journal.record_event("stage_fallback", msg, ev)
+                    self.start_session("paper")
+            except Exception as exc:  # never kill the server
+                log.exception("stage switch failed")
+                self._session_error = f"stage switch failed: {type(exc).__name__}: {exc}"[:300]
+            finally:
+                self._switching = False
+                self._grad_checked = False
+
+        self._switch_thread = threading.Thread(target=run, name="kwanttrades-stage-switch", daemon=True)
+        self._switch_thread.start()
 
     # ------------------------------------------------------------------ shutdown
     def close(self) -> None:

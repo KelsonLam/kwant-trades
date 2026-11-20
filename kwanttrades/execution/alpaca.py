@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import Any
@@ -30,6 +31,7 @@ from kwanttrades.types import (
 
 log = logging.getLogger("kwanttrades.alpaca")
 
+_OCC_RE = re.compile(r"^[A-Z]{1,6}\d{6}[CP]\d{8}$")
 LIVE_ENV = "KWANT_ALLOW_LIVE"
 LIVE_ACK = "YES_I_ACCEPT_THE_RISK"
 
@@ -241,6 +243,44 @@ class AlpacaBroker:
         if not include_closed:
             ps = [p for p in ps if p.is_open]
         return sorted(ps, key=lambda p: p.opened)
+
+    def reconcile(self) -> list[str] | None:
+        """Option positions Alpaca reports versus the ones this broker journaled. [] = they agree, a list of
+        plain differences otherwise, None = could not tell (orders still in flight, or Alpaca unreachable).
+        Stock positions are ignored (the owner may hold shares in the same practice account)."""
+        if any(o.status == OrderStatus.NEW for o in self._orders.values()):
+            return None
+        expected: dict[str, float] = {}
+        for p in self._positions.values():
+            if not p.is_open:
+                continue
+            for l in p.idea.legs:
+                sign = 1.0 if l.side == Side.BUY else -1.0
+                expected[l.quote.occ_symbol] = expected.get(l.quote.occ_symbol, 0.0) + sign * l.ratio * p.contracts
+        try:
+            raw = list(self.client.get_all_positions() or [])
+        except Exception as exc:  # pragma: no cover - network
+            log.warning("could not read Alpaca positions: %s", type(exc).__name__)
+            return None
+        actual: dict[str, float] = {}
+        for rp in raw:
+            sym = str(getattr(rp, "symbol", "") or "")
+            if not _OCC_RE.match(sym):
+                continue
+            try:
+                qty = float(getattr(rp, "qty", 0) or 0)
+            except (TypeError, ValueError):
+                qty = 0.0
+            side = str(getattr(getattr(rp, "side", ""), "value", getattr(rp, "side", ""))).lower()
+            if side == "short" and qty > 0:
+                qty = -qty
+            actual[sym] = actual.get(sym, 0.0) + qty
+        diffs = []
+        for sym in sorted(set(expected) | set(actual)):
+            e, a = expected.get(sym, 0.0), actual.get(sym, 0.0)
+            if abs(e - a) > 1e-9:
+                diffs.append(f"{sym}: journal {e:+g}, Alpaca {a:+g}")
+        return diffs
 
     def mark_to_market(self, chains: dict[str, OptionChain]) -> None:
         for p in self._positions.values():

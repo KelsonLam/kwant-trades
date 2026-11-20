@@ -111,6 +111,8 @@ Copy `config.example.toml` to `config.toml`; every setting there is documented i
 * `[scan]` universe, expiry windows, liquidity filters, thresholds for edge, direction and score.
 * `[signals]` opening-range length and the weights used to blend the signals.
 * `[sentiment]` headline scoring options.
+* `[graduation]` the checks the built-in paper simulator must pass before the dashboard moves to Alpaca paper
+  (see "Learning and the Road to Alpaca").
 
 Command-line options: `--config FILE`, `--db FILE`, `--log-file FILE`, `-v`. Logs go to the console and
 `data/kwanttrades.log`; secrets are never logged.
@@ -136,6 +138,73 @@ mode = "alpaca_paper"
 5. Run `python -m kwanttrades run`. Orders now go to Alpaca's practice account. The order format has
    been unit-tested but not verified against a live Alpaca account, so watch the first orders in
    Alpaca's dashboard.
+
+## Learning and the Road to Alpaca
+
+In the two practice modes (`paper` and `alpaca_paper`) Kwant Trades studies its own closed trades and adjusts a
+few strategy settings, slowly and only on clear evidence. It never learns from live trading, and it never touches a
+risk limit.
+
+**Post-mortems.** Every closed trade gets one plain reason, shown on the dashboard's Learning page (More >
+Learning) with the numbers behind it: the direction was wrong; right direction but too slow for time decay; the
+stock moved less (or more) than the model expected; stopped out and then it recovered; costs ate the edge; a big
+overnight gap; or not enough recorded to tell (trades from before this feature). After a trade closes, its option
+prices are still followed until expiry, so "stopped out, then it recovered" can be spotted.
+
+**What it may change.** Only these: minimum direction strength, minimum signal confidence, minimum volatility
+edge, trust in the direction signal, trust in its own volatility forecast, stop-loss, take-profit, the earliest
+entry time (only ever later), and a per-strategy weight (0 pauses a strategy). Loss caps, the daily loss limit,
+trade and position limits, portfolio risk, the defined-risk rule and the live-trading lock are not on that list.
+
+**How carefully.**
+
+* Nothing changes before 20 closed trades.
+* At most one setting changes per review, by at most a quarter of its allowed range, with 5 trading days between
+  changes.
+* Each rule needs a statistical test to pass. For example, a strategy is paused only when its average result is
+  below zero across the whole 80% confidence range over at least 10 trades. Exit levels change only if replaying
+  the recorded prices shows the new levels beat the old ones on the older two-thirds of trades, and are not worse
+  on the most recent third.
+* Every change is stored with its evidence and shown in the change history.
+* If the 15 trades after a change do clearly worse than the 15 before it, the change is undone automatically.
+* A paused strategy makes no new trades, so it stays paused until you undo the pause.
+
+**Your controls** (Learning page): *Freeze learning* (nothing changes by itself; post-mortems are still written),
+*Undo* any active change, and *Reset everything learned* (back to your `config.toml` values; the history is kept).
+
+**Where it is stored.** Learned values are kept in `data/learned.json`, next to the journal, and applied on top of
+`config.toml`, which is never rewritten. Post-mortems are kept in the journal. Delete `learned.json` (with the
+dashboard stopped) to forget every learned value.
+
+**Road to Alpaca (graduation).** The Home screen shows how close the built-in simulator is to earning a move to
+your Alpaca **paper** account. All of these must pass, on closed simulator trades (defaults in `[graduation]`):
+
+| Check | Default |
+|---|---|
+| Closed trades | at least 40 |
+| Trading days covered | at least 20 |
+| Profit factor (money won / money lost) | at least 1.3 |
+| Worst drawdown of closed-trade P&L | at most 10% of starting equity |
+| Profitable weeks | at least 60%, over at least 4 weeks |
+| Edge is real | the cautious end of the 90% range of average P&L / max loss is above 0 |
+| Fresh trades | at least 25 trades opened after the latest learning change, passing the same quality checks |
+
+The fresh-trades check stops the system from graduating just because learning fit old trades. Any learning change,
+undo or reset starts that count again.
+
+When every check passes and auto_switch is on, the running dashboard session moves from `paper` to
+`alpaca_paper` by itself. It needs your Alpaca **paper** keys in `.env`: if they are missing, the card says what is
+left for you to do. The current stage is kept in `data/stage.json`. Start the dashboard with
+`python -m kwanttrades web --start-session auto` so it restarts on the right stage. The phone launcher and the
+scheduled task already do this.
+
+**Safety fallback.** On Alpaca paper, if 3 orders in a row are rejected or fail, or Alpaca's positions disagree
+with the journal on 2 checks in a row, the session moves back to the built-in simulator and the dashboard shows
+why. Check the Alpaca dashboard before trusting it again. A fallback also restarts the fresh-trades count.
+
+**Live trading is never automatic.** On Alpaca paper, the dashboard shows a read-only "live readiness" checklist,
+with the same checks applied to the Alpaca paper trades. Nothing in the program acts on it: going live stays a
+manual decision, made the way "Going live" below describes.
 
 ## Going live (real money): read this twice
 
@@ -221,4 +290,5 @@ password. Nothing about the default mode changes.
 
 `kwanttrades/quant` (volatility maths), `kwanttrades/signals` (intraday signals), `kwanttrades/data` (providers, news,
 recorder, synthetic data), `kwanttrades/strategy` (idea builder), `kwanttrades/execution` (risk, sizing, exits, brokers,
-journal), `kwanttrades/app` (the trading loop), `kwanttrades/backtest`, `kwanttrades/cli.py`, `kwanttrades/report.py`.
+journal), `kwanttrades/app` (the trading loop), `kwanttrades/learning` (post-mortems, learning rules, graduation),
+`kwanttrades/backtest`, `kwanttrades/cli.py`, `kwanttrades/report.py`.

@@ -135,4 +135,9 @@ export const api = {
   flatten: () => post("/api/session/flatten", {}),
   backtest: (body) => post("/api/backtest", body),
   backtestResult: () => get("/api/backtest/result"),
+  learning: () => get("/api/learning"),
+  graduation: () => get("/api/graduation"),
+  learningFreeze: (frozen) => post("/api/learning/freeze", { frozen: !!frozen }),
+  learningRevert: (changeId) => post("/api/learning/revert", { change_id: changeId }),
+  learningReset: () => post("/api/learning/reset", {}),
 };

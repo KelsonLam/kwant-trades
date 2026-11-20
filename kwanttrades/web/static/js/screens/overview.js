@@ -7,6 +7,7 @@ import { lineChart } from "../charts.js";
 import { MODES, MARKET_STATES } from "../glossary.js";
 import { group, row, icon, openSheet, bar } from "../ui.js";
 import { ideaRow, quoteNote, emptyIdeas, serverNow, modeBadge } from "../shared.js";
+import { roadCard } from "../graduation.js";
 
 export const meta = {
   title: "Home",
@@ -223,7 +224,7 @@ export function render(root, params, ctx) {
     empty: { title: "No equity history yet", hint: "The curve starts once a session has run." },
   });
 
-  const sections = [hero(), statusCard(), riskRow(), top, quoteNote(), positions, equity,
+  const sections = [hero(), statusCard(), riskRow(), roadCard(), top, quoteNote(), positions, equity,
     h("p", { class: "footer-note" }, "Model estimates, not guarantees. Paper results do not predict live results.")];
   if (first) stagger(sections, 0, 55);
   root.append(...sections);

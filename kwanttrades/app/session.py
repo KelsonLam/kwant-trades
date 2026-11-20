@@ -470,6 +470,10 @@ class TradingSession:
         kd = self.journal.get_value("kill_switch_day")
         self._kill_day: date | None = date.fromisoformat(kd) if kd else None
         self._kill_reason: str | None = None
+        # supervised learning (kwanttrades.learning.LearningHub), attached by the owner of the session; optional
+        self.learning: Any = None
+        self.order_failures = 0  # consecutive broker rejections/errors (opening or closing orders)
+        self.last_settle_spots: dict[str, float] = {}
 
     # ------------------------------------------------------------------ public helpers
     @property
@@ -517,16 +521,22 @@ class TradingSession:
             self._news_cache.clear()
 
     def _risk_cfg_for(self, now: datetime) -> RiskConfig:
-        """On early-close days pull the flatten time and entry cut-off in front of the 13:00 close."""
+        """On early-close days pull the flatten time and entry cut-off in front of the 13:00 close. A learned
+        "no new trades before" can only move the entry-window START later (never loosens anything)."""
         r = self.cfg.risk
         d = now.date()
         if d in EARLY_CLOSES:
             close = session_close_dt(d)
             flat = (close - timedelta(minutes=5)).time()
             end = (close - timedelta(minutes=30)).time()
-            return dataclasses.replace(
+            r = dataclasses.replace(
                 r, flatten_time=min(parse_hhmm(r.flatten_time), flat).strftime("%H:%M"),
                 entry_window_end=min(parse_hhmm(r.entry_window_end), end).strftime("%H:%M"))
+        hub = self.learning
+        if hub is not None:
+            start = hub.entry_start(r.entry_window_start)
+            if parse_hhmm(start) > parse_hhmm(r.entry_window_start):
+                r = dataclasses.replace(r, entry_window_start=start)
         return r
 
     # ------------------------------------------------------------------ data pieces
@@ -776,11 +786,13 @@ class TradingSession:
             order = self.broker.close(pos.id, limit, reason)
         except Exception as exc:
             log.error("close failed for %s: %s", pos.id, exc)
+            self.order_failures += 1
             info["status"] = "error"
             res.errors.append({"symbol": pos.idea.symbol, "stage": "close", "message": f"{type(exc).__name__}: {exc}"[:300]})
             return False
         info["status"] = order.status.value
         info["fill_price"] = order.fill_price
+        self.order_failures = self.order_failures + 1 if order.status == OrderStatus.REJECTED else 0
         if order.status == OrderStatus.FILLED:
             info["pnl"] = pos.realized_pnl
             log.info("closed %s %s (%s): pnl %.2f", pos.idea.symbol, pos.idea.strategy, reason, pos.realized_pnl)
@@ -881,6 +893,11 @@ class TradingSession:
         held_exps: dict[str, set] = {}
         for p in positions:
             held_exps.setdefault(p.idea.symbol, set()).update(l.quote.expiry for l in p.idea.legs)
+        hub = self.learning
+        if hub is not None and self.broker is not None:  # post-exit tracking: only symbols that are scanned anyway
+            for sym, exps in hub.tracked_expiries(self, now).items():
+                if sym in universe:
+                    held_exps.setdefault(sym, set()).update(exps)
         wanted = list(dict.fromkeys(universe + sorted(held_syms - set(universe))))
         reuse: dict[str, dict] = {}
         if self.cache_enabled and not is_open:  # market closed: quotes cannot change, reuse the last analysis
@@ -908,6 +925,8 @@ class TradingSession:
                 log.error("mark_to_market failed: %s", exc)
                 res.errors.append({"symbol": None, "stage": "mark_to_market", "message": f"{type(exc).__name__}: {exc}"[:300]})
             self._settle(now, res)
+            if hub is not None:
+                hub.after_marks(self, now)
             positions = self._open_positions()
             held_syms = {p.idea.symbol for p in positions}
             account = self._account()
@@ -962,6 +981,16 @@ class TradingSession:
                             and trades_today < risk_cfg.max_trades_per_day
                             and len(positions) < risk_cfg.max_open_positions)
         cands: list[tuple[TradeIdea, SymbolRecord, Any]] = []
+        learn_blocks: dict[int, str] = {}
+
+        def learned(idea: TradeIdea) -> TradeIdea:
+            if hub is not None:
+                idea = copy.copy(idea)  # never mutate a cached idea
+                why = hub.adjust_idea(idea)
+                if why:
+                    learn_blocks[id(idea)] = why
+            return idea
+
         grade_fn = getattr(self.engine, "grade", None)
         for sym in universe:
             rec = res.symbols.setdefault(sym, SymbolRecord(sym))
@@ -974,7 +1003,7 @@ class TradingSession:
                 e = reuse[sym]
                 self.analyses[sym] = e["analysis"]
                 for idea in e["ideas"]:
-                    cands.append((copy.copy(idea), rec, e["analysis"]))
+                    cands.append((learned(copy.copy(idea)), rec, e["analysis"]))
                 continue
             ch = analysis_chains.get(sym)
             if ch is None:
@@ -1019,7 +1048,7 @@ class TradingSession:
                 self._analysis_cache[sym] = {"key": (data_now, state), "now": now, "rec": rec,
                                              "comp": comp, "analysis": analysis, "ideas": ideas}
             for idea in ideas:
-                cands.append((idea, rec, analysis))
+                cands.append((learned(idea), rec, analysis))
 
         # ---- sizing, risk gate, orders (best score first across the whole universe)
         cands.sort(key=lambda c: c[0].score, reverse=True)
@@ -1041,6 +1070,8 @@ class TradingSession:
                 extra.append(f"BLOCK: {sym} already has an open position or order (one trade per symbol at a time)")
             if any(o.status == OrderStatus.NEW and o.idea.symbol == sym and o.action == "open" for o in self._pending):
                 extra.append(f"BLOCK: an order for {sym} is still pending")
+            if id(idea) in learn_blocks:
+                extra.append(learn_blocks[id(idea)])
             try:
                 day5 = self.journal.day_trades_last_5_sessions(now)
             except Exception:
@@ -1065,6 +1096,8 @@ class TradingSession:
                 self._shadow_order(idea, contracts, now, irec, res)
             else:
                 self._send_order(idea, contracts, irec, res, now)
+                if irec.action == "sent" and hub is not None and res.orders:
+                    hub.on_entry(self, idea, contracts, res.orders[-1], rec, analysis, rm, now)
             if irec.action in ("sent", "shadow"):
                 sent_syms.add(sym)
                 trades_today = self._trades_today(now)
@@ -1081,6 +1114,8 @@ class TradingSession:
         res.account = {"equity": account.equity, "cash": account.cash, "buying_power": account.buying_power,
                        "day_pnl": account.day_pnl, "open_risk": account.open_risk}
         res.trades_today = self._trades_today(now)
+        if hub is not None:
+            hub.after_step(self, now)
 
     # ------------------------------------------------------------------ step parts
     @staticmethod
@@ -1114,6 +1149,7 @@ class TradingSession:
                     spots[sym] = float(self.data.spot(sym))
                 except Exception as exc:
                     log.warning("no spot to settle %s: %s", sym, exc)
+            self.last_settle_spots = dict(spots)
             for p in fn(spots, settle_date):
                 res.settled.append({"position_id": p.id, "symbol": p.idea.symbol, "strategy": p.idea.strategy,
                                     "pnl": p.realized_pnl, "exit_value": p.exit_price})
@@ -1162,6 +1198,7 @@ class TradingSession:
             order = self.broker.submit(idea, contracts, idea.entry_limit)
         except Exception as exc:
             log.error("order submit failed for %s: %s", idea.symbol, exc)
+            self.order_failures += 1
             irec.action = "send_failed"
             res.errors.append({"symbol": idea.symbol, "stage": "submit", "message": f"{type(exc).__name__}: {exc}"[:300]})
             return
@@ -1171,9 +1208,11 @@ class TradingSession:
                            "fill_price": order.fill_price, "fees": order.fees, "reason": order.reason,
                            "position_id": order.position_id})
         if order.status == OrderStatus.REJECTED:
+            self.order_failures += 1
             irec.action = "send_failed"
             log.info("order rejected for %s: %s", idea.symbol, order.reason)
             return
+        self.order_failures = 0
         irec.action = "sent"
         self._sent_today += 1
         if order.status == OrderStatus.NEW:
