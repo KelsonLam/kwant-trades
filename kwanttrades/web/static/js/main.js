@@ -276,9 +276,9 @@ const bn = { demo: null, kill: null, conn: null };
 function buildBanners() {
   if (isDemo()) {
     bn.demo = h("div", { class: "banner demo", role: "note", "aria-label": "Demo data notice" },
-      h("strong", null, "Demo mode"),
-      h("span", { class: "demo-why" }, getDemoReason() ? `${getDemoReason()} Showing sample data, not live market quotes.` : "Sample data for illustration, not live market quotes."),
-      location.search.includes("demo=1") ? h("a", { href: location.pathname, class: "demo-exit" }, "Exit demo") : null);
+      h("span", { class: "demo-tag" }, "Demo"),
+      h("span", { class: "demo-why" }, getDemoReason() ? `${getDemoReason()} · sample data` : "Sample data, not live quotes"),
+      location.search.includes("demo=1") ? h("a", { href: location.pathname, class: "demo-exit" }, "Exit") : null);
   }
   bn.kill = h("div", { class: "banner kill", role: "status" }, icon("shield", { size: 18 }), h("span", null, "Kill switch on. Trading is stopped for today."));
   bn.conn = h("div", { class: "banner conn", role: "status" }, h("span", { class: "spin", "aria-hidden": "true" }), h("span", null, "Reconnecting…"));

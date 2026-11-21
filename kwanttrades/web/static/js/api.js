@@ -97,7 +97,7 @@ export async function init() {
   } else if (location.protocol === "file:") {
     // Opened straight from disk: there is no server to probe (the probe would only log a failed request).
     demo = true;
-    demoReason = "Opened as a local file.";
+    demoReason = "Local file";
   } else {
     try {
       // /api/session doubles as the "is there a server?" probe, so a static-only host costs one failed (retried) request.
@@ -107,7 +107,7 @@ export async function init() {
       return await liveRequest("GET", "/api/status");
     } catch (e) {
       demo = true;
-      demoReason = "The server is not responding.";
+      demoReason = "Server offline";
     }
   }
   return request("GET", "/api/status");
