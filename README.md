@@ -5,6 +5,8 @@ volatility models, combines them with intraday price-action signals, and trades 
 strict risk gate. It learns from its own losing trades and has to earn its way from simulation to a real
 broker's practice account.**
 
+**[▶ Open the live demo](https://kelsonlam.github.io/kwant-trades/)**: runs in any browser, no install or sign-up.
+
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
 ![Tests](https://img.shields.io/badge/tests-552%20passing-2ea44f)
 ![Dependencies](https://img.shields.io/badge/frontend-no%20frameworks-informational)
@@ -13,7 +15,7 @@ broker's practice account.**
 |---|---|---|---|
 | ![Home screen](docs/screenshots/home.png) | ![Trade ideas](docs/screenshots/ideas.png) | ![Portfolio](docs/screenshots/portfolio.png) | ![Learning](docs/screenshots/learning.png) |
 
-<sub>Screens from the built-in demo mode (simulated data). The dashboard is a mobile-first web app that installs to a phone's home screen.</sub>
+<sub>Screens from the demo site (sample data). The dashboard is a mobile-first web app that installs to a phone's home screen.</sub>
 
 ## Highlights
 
@@ -84,13 +86,17 @@ flowchart LR
 
 ## Try the demo
 
+**[kelsonlam.github.io/kwant-trades](https://kelsonlam.github.io/kwant-trades/)**: the full dashboard running on
+sample data, best viewed on a phone or in a narrow window. No keys, account or password needed.
+
+To run it yourself instead:
+
 ```bash
 python -m pip install -r requirements.txt
 python -m kwanttrades web
 ```
 
-Then open <http://127.0.0.1:8787/?demo=1>. Demo mode runs entirely in the browser with simulated
-quotes, so it needs no API keys, no account and no password.
+Then open <http://127.0.0.1:8787/?demo=1> for sample data, or <http://127.0.0.1:8787/> to use real market data.
 
 > **Not financial advice.** Kwant Trades is software, not an advisor. It does not guarantee profit and
 > most of what it models can be wrong. Options can lose their whole value quickly. Never risk money

@@ -1,5 +1,5 @@
-// Shared formatters. Every function is null-safe and returns "—" for unknown values.
-export const DASH = "—";
+// Shared formatters. Every function is null-safe and returns "–" for unknown values.
+export const DASH = "–";
 const NY = "America/New_York";
 
 export const isNum = (v) => typeof v === "number" && Number.isFinite(v);

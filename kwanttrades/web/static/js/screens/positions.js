@@ -25,7 +25,7 @@ async function closeOne(p, btn) {
   const ok = await confirmDialog({
     title: `Close ${p.symbol ?? "position"}?`,
     body: [
-      `This sends a closing order for ${p.contracts ?? "—"} × ${strategyInfo(p.strategy, p.strategy_label).label}, using practice money.`,
+      `This sends a closing order for ${p.contracts ?? "–"} × ${strategyInfo(p.strategy, p.strategy_label).label}, using practice money.`,
       h("p", null, "Current open profit/loss: ", signed(signedMoney(p.unrealized_pnl), p.unrealized_pnl), ". The final price may differ slightly (the system pays part of the bid–ask spread)."),
     ],
     confirmText: "Close position",
@@ -93,12 +93,12 @@ function openPositionSheet(id) {
           h("div", { class: "sheet-hero" },
             h("p", { class: "muted" }, info.label),
             h("p", { class: `sheet-big val ${tone(p.unrealized_pnl)}` }, h("span", { class: "arw", "aria-hidden": "true" }, arrow(p.unrealized_pnl)), " ", signedMoney(p.unrealized_pnl)),
-            h("p", { class: "muted small" }, `Open profit/loss · ${p.contracts ?? "—"} contract-set${p.contracts === 1 ? "" : "s"} · opened ${dateNY(p.opened)} ${timeNY(p.opened)}`)),
+            h("p", { class: "muted small" }, `Open profit/loss · ${p.contracts ?? "–"} contract-set${p.contracts === 1 ? "" : "s"} · opened ${dateNY(p.opened)} ${timeNY(p.opened)}`)),
           progressPair(p),
           h("dl", { class: "tiles" },
             h("div", { class: "tile" }, h("dt", null, credit ? "Collected" : "Paid"), h("dd", { class: "num" }, price(Math.abs(p.entry_price ?? NaN)), h("span", { class: "muted small" }, " /sh"))),
-            h("div", { class: "tile" }, h("dt", null, "Worth now"), h("dd", { class: "num" }, p.mark == null ? "—" : price(Math.abs(p.mark)), h("span", { class: "muted small" }, " /sh"))),
-            h("div", { class: "tile" }, h("dt", null, term("max_loss", "Most you can lose")), h("dd", { class: "num" }, isNum(p.max_loss) && isNum(p.contracts) ? money(p.max_loss * p.contracts, { cents: false }) : "—")),
+            h("div", { class: "tile" }, h("dt", null, "Worth now"), h("dd", { class: "num" }, p.mark == null ? "–" : price(Math.abs(p.mark)), h("span", { class: "muted small" }, " /sh"))),
+            h("div", { class: "tile" }, h("dt", null, term("max_loss", "Most you can lose")), h("dd", { class: "num" }, isNum(p.max_loss) && isNum(p.contracts) ? money(p.max_loss * p.contracts, { cents: false }) : "–")),
             h("div", { class: "tile" }, h("dt", null, "Expires"), h("dd", { class: "num" }, ymd(p.expiry), h("span", { class: "muted small" }, isNum(dte) ? ` · ${dte <= 0 ? "today" : dte + " d"}` : "")))));
         if (!built) {
           built = true;
@@ -133,7 +133,7 @@ function openView() {
       summary.replaceChildren(h("span", null, `${open.length} open · `), signed(signedMoney(total), total));
       const g = group(open.map((p) => {
         const r = row({
-          title: h("span", { class: "sym" }, p.symbol ?? "—"),
+          title: h("span", { class: "sym" }, p.symbol ?? "–"),
           sub: `${strategyInfo(p.strategy, p.strategy_label).label}`,
           trailing: pnlNode(p), chevron: true, onclick: () => openPositionSheet(p.id), haspopup: "dialog",
           label: `${p.symbol}, ${strategyInfo(p.strategy, p.strategy_label).label}, open profit or loss ${signedMoney(p.unrealized_pnl)}. Open details.`,
@@ -164,7 +164,7 @@ function closedView() {
       return h("div", null,
         h("div", { class: "list-meta" }, h("span", null, `${list.length} closed · ${wins} winner${wins === 1 ? "" : "s"} · total `), signed(signedMoney(total), total)),
         group(list.map((p) => row({
-          title: h("span", { class: "sym" }, p.symbol ?? "—"),
+          title: h("span", { class: "sym" }, p.symbol ?? "–"),
           sub: h("span", { class: "sub-stack" },
             h("span", null, `${strategyInfo(p.strategy, p.strategy_label).label} · ${exitLabel(p.exit_reason)} · ${dateNY(p.closed)} ${timeNY(p.closed)}`),
             p.postmortem?.cause_text ? h("span", { class: "cause-line" }, String(p.postmortem.cause_text)) : null),

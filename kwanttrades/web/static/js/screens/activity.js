@@ -33,7 +33,7 @@ function openDecisionSheet(x) {
           h("div", { class: "sheet-chip" }, decisionChip(x.passed))),
         reasons.length ? group(reasons.map((r) => row({ title: h("span", { class: "wrap" }, String(r)) })), { header: "Reasons" }) : null,
         h("dl", { class: "tiles" },
-          h("div", { class: "tile" }, h("dt", null, "Contracts"), h("dd", { class: "num" }, isNum(x.contracts) ? String(x.contracts) : "—")),
+          h("div", { class: "tile" }, h("dt", null, "Contracts"), h("dd", { class: "num" }, isNum(x.contracts) ? String(x.contracts) : "–")),
           h("div", { class: "tile" }, h("dt", null, term("ev", "Expected value")), h("dd", { class: "num" }, signedMoney(x.expected_value)))),
         h("details", { class: "disclosure" }, h("summary", null, "Details"),
           h("dl", { class: "kv" }, h("dt", null, term("score", "Score")), h("dd", { class: "num" }, num(x.score, 3)))));
@@ -44,7 +44,7 @@ function openDecisionSheet(x) {
 function decisionRow(x) {
   const reason = (x.reasons || [])[0] ? String(x.reasons[0]) : "";
   return row({
-    title: h("span", { class: "idea-title-line" }, h("span", { class: "sym" }, x.symbol ?? "—"), decisionChip(x.passed)),
+    title: h("span", { class: "idea-title-line" }, h("span", { class: "sym" }, x.symbol ?? "–"), decisionChip(x.passed)),
     sub: `${strategyInfo(x.strategy).label}${reason ? " · " + reason : ""}`,
     trailing: h("span", { class: "when" }, h("span", { class: "num" }, timeNY(x.t)), h("span", { class: "pop-lbl" }, dateNY(x.t))),
     chevron: true, onclick: () => openDecisionSheet(x), haspopup: "dialog",

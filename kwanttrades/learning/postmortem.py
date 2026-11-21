@@ -243,7 +243,7 @@ def post_exit(pos: Position, marks: list[dict], flatten_time: str = "15:55") -> 
 # --------------------------------------------------------------------------- classification
 def _pct(x: float | None) -> str:
     if x is None:
-        return "—"
+        return "–"
     return f"{abs(x) * 100:.2f}%" if abs(x) < 0.001 else f"{abs(x) * 100:.1f}%"
 
 

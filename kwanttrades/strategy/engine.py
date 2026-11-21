@@ -86,7 +86,7 @@ from kwanttrades.types import (
 
 VOL_SHRINK = 0.5  # weight on our forecast realised vol in sigma_phys (rest = market ATM IV)
 DRIFT_K = 0.35  # mean log shift = direction * confidence * DRIFT_K * sigma_daily
-STALE_LINE = "quotes are from the last close — for review only"
+STALE_LINE = "quotes are from the last close, for review only"
 
 STRATEGY_LABELS = {
     "long_call": "Long call",

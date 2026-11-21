@@ -11,9 +11,9 @@ export const meta = { title: "Learning" };
 
 let filter = "losses";
 
-const when = (iso) => (iso ? `${dateNY(iso)} ${timeNY(iso)}` : "—");
-const times = (v, d = 1) => (isNum(v) ? `${num(v, d)}×` : "—");
-const yesNo = (v) => (v === true ? "Yes" : v === false ? "No" : "—");
+const when = (iso) => (iso ? `${dateNY(iso)} ${timeNY(iso)}` : "–");
+const times = (v, d = 1) => (isNum(v) ? `${num(v, d)}×` : "–");
+const yesNo = (v) => (v === true ? "Yes" : v === false ? "No" : "–");
 
 function afterAction(r, msg) {
   if (r && typeof r === "object" && "frozen" in r) store.set("learning", r);
@@ -23,7 +23,7 @@ function afterAction(r, msg) {
 
 // ---------------------------------------------------------------- post-mortem sheet
 function kv(pairs) {
-  return h("dl", { class: "kv" }, ...pairs.filter(([, v]) => v != null && v !== "—").flatMap(([k, v]) => [h("dt", null, k), h("dd", { class: "num" }, String(v))]));
+  return h("dl", { class: "kv" }, ...pairs.filter(([, v]) => v != null && v !== "–").flatMap(([k, v]) => [h("dt", null, k), h("dd", { class: "num" }, String(v))]));
 }
 
 function tile(lbl, value, v) {
@@ -32,8 +32,8 @@ function tile(lbl, value, v) {
 
 function openPostMortem(p) {
   const e = p.evidence || {};
-  const dir = e.direction_call === 1 ? "Up" : e.direction_call === -1 ? "Down" : e.direction_call === 0 ? "No direction (a volatility trade)" : "—";
-  const held = isNum(e.hold_minutes) ? duration(e.hold_minutes * 60000) : "—";
+  const dir = e.direction_call === 1 ? "Up" : e.direction_call === -1 ? "Down" : e.direction_call === 0 ? "No direction (a volatility trade)" : "–";
+  const held = isNum(e.hold_minutes) ? duration(e.hold_minutes * 60000) : "–";
   return openSheet({
     title: p.symbol ?? "Trade",
     build: (body) => {
@@ -44,32 +44,32 @@ function openPostMortem(p) {
           h("p", { class: "muted small" }, `${strategyInfo(p.strategy, p.strategy_label).label} · ${p.mode === "alpaca_paper" ? "Alpaca paper" : "built-in paper"} · closed ${when(p.closed)} NY`)),
         h("dl", { class: "tiles" },
           tile("Result", signedMoney(p.pnl), p.pnl),
-          tile("Share of the most it could lose", isNum(p.r) ? pct(p.r, 0) : "—", p.r),
+          tile("Share of the most it could lose", isNum(p.r) ? pct(p.r, 0) : "–", p.r),
           tile("Held for", held),
-          tile("Stock moved", isNum(e.move_pct) ? pct(e.move_pct, 2) : "—", e.move_pct)),
+          tile("Stock moved", isNum(e.move_pct) ? pct(e.move_pct, 2) : "–", e.move_pct)),
         group([h("li", { class: "row" }, h("div", { class: "row-main static stacked" }, kv([
           ["Bet on the stock going", dir],
           ["Was the direction right?", yesNo(e.direction_right)],
-          ["Move compared with a normal day", isNum(e.move_sigma) ? times(Math.abs(e.move_sigma)) : "—"],
+          ["Move compared with a normal day", isNum(e.move_sigma) ? times(Math.abs(e.move_sigma)) : "–"],
           ["Move compared with what options priced in", times(e.realized_vs_implied)],
           ["Move compared with what the model expected", times(e.realized_vs_model)],
-          ["Overnight jump against it", isNum(e.gap_sigma) && e.gap_sigma > 0 ? times(e.gap_sigma) + " a normal day" : "—"],
-          ["Best result after it was closed", isNum(e.best_post_pnl) ? signedMoney(e.best_post_pnl) : "—"],
-          ["Cost to get in and out", isNum(e.cost_total) ? `${money(e.cost_total)}${isNum(e.cost_frac) ? ` (${pct(e.cost_frac, 0)} of the max loss)` : ""}` : "—"],
+          ["Overnight jump against it", isNum(e.gap_sigma) && e.gap_sigma > 0 ? times(e.gap_sigma) + " a normal day" : "–"],
+          ["Best result after it was closed", isNum(e.best_post_pnl) ? signedMoney(e.best_post_pnl) : "–"],
+          ["Cost to get in and out", isNum(e.cost_total) ? `${money(e.cost_total)}${isNum(e.cost_frac) ? ` (${pct(e.cost_frac, 0)} of the max loss)` : ""}` : "–"],
           ["How it was closed", exitLabel(p.exit_reason)],
         ])))], { header: "What happened" }),
         h("details", { class: "disclosure" }, h("summary", null, "What the model thought at entry"),
           kv([
-            ["Signal direction (−1 to +1)", isNum(e.composite_direction) ? num(e.composite_direction, 2) : "—"],
-            ["Signal confidence", isNum(e.composite_confidence) ? pct(e.composite_confidence, 0) : "—"],
-            ["Chance of profit (model)", isNum(e.pop) ? pct(e.pop, 0) : "—"],
-            ["Expected value (model)", isNum(e.model_ev) ? signedMoney(e.model_ev) : "—"],
-            ["Volatility edge", isNum(e.vol_edge) ? pct(e.vol_edge, 0) : "—"],
-            ["Option price level (implied volatility)", isNum(e.entry_iv) ? pct(e.entry_iv, 1) : "—"],
-            ["Market-stress size multiplier", isNum(e.risk_multiplier) ? num(e.risk_multiplier, 2) : "—"],
-            ["Opening-range state", e.orb_state ? String(e.orb_state).replace(/_/g, " ") : "—"],
-            ["Opened", isNum(e.entry_bucket_min) ? `${e.entry_bucket_min} min after 09:45` : "—"],
-            ["Days to expiry at entry", isNum(e.dte_entry) ? String(e.dte_entry) : "—"],
+            ["Signal direction (−1 to +1)", isNum(e.composite_direction) ? num(e.composite_direction, 2) : "–"],
+            ["Signal confidence", isNum(e.composite_confidence) ? pct(e.composite_confidence, 0) : "–"],
+            ["Chance of profit (model)", isNum(e.pop) ? pct(e.pop, 0) : "–"],
+            ["Expected value (model)", isNum(e.model_ev) ? signedMoney(e.model_ev) : "–"],
+            ["Volatility edge", isNum(e.vol_edge) ? pct(e.vol_edge, 0) : "–"],
+            ["Option price level (implied volatility)", isNum(e.entry_iv) ? pct(e.entry_iv, 1) : "–"],
+            ["Market-stress size multiplier", isNum(e.risk_multiplier) ? num(e.risk_multiplier, 2) : "–"],
+            ["Opening-range state", e.orb_state ? String(e.orb_state).replace(/_/g, " ") : "–"],
+            ["Opened", isNum(e.entry_bucket_min) ? `${e.entry_bucket_min} min after 09:45` : "–"],
+            ["Days to expiry at entry", isNum(e.dte_entry) ? String(e.dte_entry) : "–"],
           ])),
         e.recorded === false ? h("p", { class: "small muted" }, "This trade was opened before Kwant Trades recorded entry details, so some numbers are missing.") : null,
         p.tracking_done ? null : h("p", { class: "small muted" }, "Still following this option until it expires, to see whether a different exit would have done better."));
@@ -116,7 +116,7 @@ function timeline() {
       const list = filter === "losses" ? all.filter((p) => !p.win) : all;
       if (!list.length) return null;
       return group(list.slice(0, 100).map((p) => row({
-        title: h("span", { class: "wrap" }, h("span", { class: "sym" }, p.symbol ?? "—"), " · ", String(p.cause_label ?? "")),
+        title: h("span", { class: "wrap" }, h("span", { class: "sym" }, p.symbol ?? "–"), " · ", String(p.cause_label ?? "")),
         sub: h("span", { class: "sub-stack" }, h("span", { class: "cause-line" }, String(p.cause_text ?? "")),
           h("span", null, `${strategyInfo(p.strategy, p.strategy_label).label} · ${when(p.closed)}`)),
         trailing: signed(signedMoney(p.pnl), p.pnl), chevron: true, haspopup: "dialog",
@@ -138,7 +138,7 @@ function settingsChanged() {
       return group(rows.map((x) => row({
         title: String(x.label ?? x.key),
         sub: String(x.plain ?? ""),
-        trailing: h("span", { class: "when" }, h("span", { class: "num" }, String(x.display_value ?? "—")), h("span", { class: "muted small" }, `was ${x.display_default ?? "—"}`)),
+        trailing: h("span", { class: "when" }, h("span", { class: "num" }, String(x.display_value ?? "–")), h("span", { class: "muted small" }, `was ${x.display_default ?? "–"}`)),
       })), { footer: "Learned values sit on top of config.toml; the file itself is never rewritten. Risk limits are never changed." });
     },
     empty: { title: "Nothing changed yet", hint: "Everything runs on your config.toml settings. A change appears here only when the evidence is strong." },
@@ -193,7 +193,7 @@ function history() {
         return h("li", { class: "row" }, h("div", { class: "row-main static stacked" },
           h("div", { class: "risk-line" }, h("span", { class: "cell-title" }, title), x.can_revert ? revertButton(x) : h("span", { class: "chip neutral" }, status)),
           h("p", { class: "cell-sub cause-line" }, String(x.reason ?? "")),
-          h("p", { class: "cell-sub" }, `${when(x.ts)} NY · ${x.display_before ?? "—"} → ${x.display_after ?? "—"}`, x.revert_reason ? ` · ${x.revert_reason}` : ""),
+          h("p", { class: "cell-sub" }, `${when(x.ts)} NY · ${x.display_before ?? "–"} → ${x.display_after ?? "–"}`, x.revert_reason ? ` · ${x.revert_reason}` : ""),
           evid.length ? h("details", { class: "disclosure" }, h("summary", null, "Evidence"), kv(evid)) : null));
       }), { footer: "At most one setting changes per review, by a small step, with 5 trading days between changes. A change is undone automatically if the 15 trades after it do clearly worse than the 15 before it." });
     },

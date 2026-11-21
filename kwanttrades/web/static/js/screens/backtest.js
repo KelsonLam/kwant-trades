@@ -111,7 +111,7 @@ export function render(root) {
           h("caption", { class: "sr-only" }, "Backtest trades"),
           h("thead", null, h("tr", null, ...["Opened", "Symbol", "Trade", "Exit"].map((x) => h("th", { scope: "col" }, x)), h("th", { scope: "col", class: "num" }, "Result"))),
           h("tbody", null, trades.slice().reverse().slice(0, 200).map((t) => h("tr", null,
-            h("td", { class: "num" }, dateNY(t.opened), " ", timeNY(t.opened)), h("td", null, h("strong", { class: "sym" }, t.symbol ?? "—")),
+            h("td", { class: "num" }, dateNY(t.opened), " ", timeNY(t.opened)), h("td", null, h("strong", { class: "sym" }, t.symbol ?? "–")),
             h("td", { class: "small" }, strategyInfo(t.strategy).label), h("td", { class: "small" }, exitLabel(t.exit_reason)),
             h("td", { class: "num" }, signed(signedMoney(t.pnl), t.pnl)))))))));
       }

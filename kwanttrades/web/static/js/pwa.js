@@ -2,7 +2,7 @@
 // the app works fully without it.
 (function () {
   try {
-    if (window.isSecureContext && "serviceWorker" in navigator) {
+    if (window.isSecureContext && "serviceWorker" in navigator && !/\.github\.io$/i.test(location.hostname)) {
       window.addEventListener("load", function () { navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(function () {}); });
     }
   } catch (e) { /* optional enhancement */ }

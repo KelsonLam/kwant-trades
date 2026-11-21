@@ -276,11 +276,11 @@ const bn = { demo: null, kill: null, conn: null };
 function buildBanners() {
   if (isDemo()) {
     bn.demo = h("div", { class: "banner demo", role: "note", "aria-label": "Demo data notice" },
-      h("strong", null, "DEMO DATA — not real quotes"),
-      h("span", { class: "demo-why" }, `${getDemoReason()}. Everything here is simulated in your browser.`),
-      location.search.includes("demo=1") ? h("a", { href: location.pathname, class: "demo-exit" }, "Live server") : null);
+      h("strong", null, "Demo mode"),
+      h("span", { class: "demo-why" }, getDemoReason() ? `${getDemoReason()} Showing sample data, not live market quotes.` : "Sample data for illustration, not live market quotes."),
+      location.search.includes("demo=1") ? h("a", { href: location.pathname, class: "demo-exit" }, "Exit demo") : null);
   }
-  bn.kill = h("div", { class: "banner kill", role: "status" }, icon("shield", { size: 18 }), h("span", null, "Kill switch on — trading is stopped for today."));
+  bn.kill = h("div", { class: "banner kill", role: "status" }, icon("shield", { size: 18 }), h("span", null, "Kill switch on. Trading is stopped for today."));
   bn.conn = h("div", { class: "banner conn", role: "status" }, h("span", { class: "spin", "aria-hidden": "true" }), h("span", null, "Reconnecting…"));
 }
 let bannerSig = "";
@@ -313,7 +313,7 @@ function onStatus() {
     const state = st.market?.state;
     if (lastMarketState && state && lastMarketState !== state) {
       announce(MARKET_STATES[state] || state);
-      if (state === "open") toast("Opening range is set — the entry window is open.");
+      if (state === "open") toast("Opening range is set. The entry window is open.");
       store.refreshMany(["status", "signals", "ideas"]);
     }
     if (state) lastMarketState = state;

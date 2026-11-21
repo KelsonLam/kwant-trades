@@ -1,0 +1,35 @@
+name: Deploy demo site
+
+# Publishes the dashboard's static files to GitHub Pages. On *.github.io the app has no server, so it
+# always runs in demo mode with built-in sample data.
+on:
+  push:
+    branches: [main]
+    paths: ["kwanttrades/web/static/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Point the install manifest at the site's subfolder
+        run: sed -i 's#"start_url": "/"#"start_url": "./"#; s#"scope": "/"#"scope": "./"#' kwanttrades/web/static/manifest.webmanifest
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: kwanttrades/web/static
+      - id: deployment
+        uses: actions/deploy-pages@v4

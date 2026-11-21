@@ -28,10 +28,10 @@ function riskNumbers(st) {
   const lossCap = isNum(lim.daily_loss_limit) ? lim.daily_loss_limit
     : isNum(cfg?.risk?.daily_loss_limit_pct) && isNum(eq) ? cfg.risk.daily_loss_limit_pct * (eq - Math.min(0, acc.day_pnl || 0)) : null;
   const loss = isNum(acc.day_pnl) ? Math.max(0, -acc.day_pnl) : null;
-  const dollars = (v, c) => `${money(v, { cents: false })} of ${isNum(c) ? money(c, { cents: false }) : "—"}`;
+  const dollars = (v, c) => `${money(v, { cents: false })} of ${isNum(c) ? money(c, { cents: false }) : "–"}`;
   const list = [
     { label: "Open risk", key: "open_risk", value: acc.open_risk, cap: riskCap, fmt: dollars, help: "The worst case of everything you hold right now, added up." },
-    { label: "Trades today", key: "contracts", value: st.trades_today, cap: st.max_trades_per_day, fmt: (v, c) => `${isNum(v) ? v : "—"} of ${isNum(c) ? c : "—"}`, help: "New trades the system may open per day." },
+    { label: "Trades today", key: "contracts", value: st.trades_today, cap: st.max_trades_per_day, fmt: (v, c) => `${isNum(v) ? v : "–"} of ${isNum(c) ? c : "–"}`, help: "New trades the system may open per day." },
     { label: "Losses today", key: "daily_loss", value: loss, cap: lossCap, fmt: dollars, help: "If today's losses reach the limit, the kill switch stops all trading for the day." },
   ];
   for (const r of list) r.ratio = isNum(r.value) && isNum(r.cap) && r.cap > 0 ? Math.max(0, Math.min(1, r.value / r.cap)) : null;
@@ -93,19 +93,19 @@ function statusCard() {
     const st = store.data("status");
     if (!st) { head.textContent = "Connecting…"; sub.textContent = ""; btn.hidden = true; return; }
     const market = MARKET_STATES[st.market?.state] || "Market state unknown";
-    const tradesTxt = isNum(st.trades_today) ? ` · ${st.trades_today} of ${st.max_trades_per_day ?? "—"} trades used` : "";
+    const tradesTxt = isNum(st.trades_today) ? ` · ${st.trades_today} of ${st.max_trades_per_day ?? "–"} trades used` : "";
     let kind = "idle", icoName = "pause";
     btn.hidden = false; btn.disabled = busy;
     btn.classList.remove("danger-ghost", "primary");
     if (st.kill_switch) {
       kind = "kill"; icoName = "shield";
-      head.textContent = "Kill switch on — trading stopped";
+      head.textContent = "Kill switch on: trading stopped";
       sub.textContent = "No new trades will be placed today. Open positions are not added to.";
       if (st.running) { btn.textContent = busy ? "Stopping…" : "Stop"; btn.classList.add("danger-ghost"); } else btn.hidden = true;
     } else if (st.running) {
       const practice = !!MODES[st.mode]?.practice;
       kind = practice ? "practice" : "watch"; icoName = practice ? "paper" : "eye";
-      head.textContent = practice ? "Practising with paper money" : "Watching only — no orders sent";
+      head.textContent = practice ? "Practising with paper money" : "Watching only, no orders sent";
       sub.textContent = marketLine(st) + tradesTxt;
       btn.textContent = busy ? "Stopping…" : "Stop"; btn.classList.add("danger-ghost");
     } else {
@@ -125,9 +125,9 @@ function statusCard() {
 
 // ---------------------------------------------------------------- hero (account value)
 function hero() {
-  const val = h("span", { class: "hero-val num" }, "—");
+  const val = h("span", { class: "hero-val num" }, "–");
   const dayArw = h("span", { class: "arw", "aria-hidden": "true" });
-  const dayVal = h("span", { class: "num" }, "—");
+  const dayVal = h("span", { class: "num" }, "–");
   const day = h("p", { class: "hero-day val flat" }, dayArw, " ", dayVal, h("span", { class: "muted" }, " today"));
   const el = h("section", { class: "hero cu", "aria-label": "Account value" }, h("p", { class: "hero-lbl" }, "Account value"), val, day);
   const draw = () => {
@@ -145,7 +145,7 @@ function hero() {
 
 // ---------------------------------------------------------------- risk row
 function riskRow() {
-  const pctTxt = h("span", { class: "num" }, "—");
+  const pctTxt = h("span", { class: "num" }, "–");
   const barHost = h("span", { class: "risk-bar" });
   const sub = h("span", { class: "risk-sub" });
   const cell = row({
@@ -160,7 +160,7 @@ function riskRow() {
     const known = r.filter((x) => x.ratio != null);
     const top = known.sort((a, b) => b.ratio - a.ratio)[0];
     const ratio = top ? top.ratio : 0;
-    pctTxt.textContent = top ? `${Math.round(ratio * 100)}%` : "—";
+    pctTxt.textContent = top ? `${Math.round(ratio * 100)}%` : "–";
     pctTxt.className = `num risk-pct ${ratio >= 1 ? "loss" : ratio >= 0.75 ? "warn" : ""}`;
     barHost.replaceChildren(bar(ratio, { level: ratio >= 1 ? "max" : ratio >= 0.75 ? "hot" : "ok", label: `${Math.round(ratio * 100)}% of the tightest limit used` }));
     sub.textContent = top ? `Tightest: ${top.label.toLowerCase()}, ${top.fmt(top.value, top.cap)}` : "No limits reported yet";

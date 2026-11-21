@@ -297,7 +297,7 @@ export function smileChart(slice, { height = 320, spot = null, onPoint } = {}) {
       const p = best[2];
       ring.setAttribute("cx", best[0]); ring.setAttribute("cy", best[1]); ring.setAttribute("visibility", "visible");
       tt.show(best[0], best[1], [
-        `${num(p.strike, p.strike % 1 ? 1 : 0)} ${p.right === "P" ? "put" : "call"}${p.flag ? " — " + p.flag : ""}`,
+        `${num(p.strike, p.strike % 1 ? 1 : 0)} ${p.right === "P" ? "put" : "call"}${p.flag ? " · " + p.flag : ""}`,
         `Market IV ${pct(p.market_iv)} (bid ${pct(p.bid_iv)} / ask ${pct(p.ask_iv)})`,
         `Fitted fair IV ${pct(p.fit_iv)}`,
         isNum(p.zscore) ? `Z-score ${p.zscore.toFixed(1)}` : "",
@@ -308,7 +308,7 @@ export function smileChart(slice, { height = 320, spot = null, onPoint } = {}) {
   });
   return h("figure", { class: "fig" }, wrap,
     tableAlt(`Smile points for ${slice?.expiry}`, ["Strike", "Type", "Market IV", "Bid IV", "Ask IV", "Fitted IV", "Flag"],
-      pts.map((p) => [num(p.strike, p.strike % 1 ? 1 : 0), p.right === "P" ? "Put" : "Call", pct(p.market_iv), pct(p.bid_iv), pct(p.ask_iv), pct(p.fit_iv), p.flag || "—"])));
+      pts.map((p) => [num(p.strike, p.strike % 1 ? 1 : 0), p.right === "P" ? "Put" : "Call", pct(p.market_iv), pct(p.bid_iv), pct(p.ask_iv), pct(p.fit_iv), p.flag || "–"])));
 }
 
 // ---------------------------------------------------------------- countdown ring

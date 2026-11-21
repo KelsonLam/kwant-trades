@@ -809,7 +809,7 @@ class Learner:
         if isinstance(v, dict):
             return f"stop {v.get('stop_loss_pct', 0):.0%} / take {v.get('take_profit_pct', 0):.0%}"
         if v is None:
-            return "—"
+            return "–"
         if key == "exits":
             return str(v)
         kn = self.knob(key) if key else None

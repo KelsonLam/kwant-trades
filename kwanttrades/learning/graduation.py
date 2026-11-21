@@ -82,7 +82,7 @@ def quality(trades: list[dict], g: GraduationConfig, start_equity: float) -> lis
     pf = stats.profit_factor(pnls)
     if pf is None:
         out.append(_crit("profit_factor", "Profit factor", "Money won ÷ money lost. Above 1 means winners outweigh losers.",
-                         None, g.min_profit_factor, "—", f"{g.min_profit_factor:.2f}", False, 0.0))
+                         None, g.min_profit_factor, "–", f"{g.min_profit_factor:.2f}", False, 0.0))
     else:
         dv = "no losses yet" if math.isinf(pf) else f"{pf:.2f}"
         out.append(_crit("profit_factor", "Profit factor", "Money won ÷ money lost. Above 1 means winners outweigh losers.",
@@ -105,7 +105,7 @@ def quality(trades: list[dict], g: GraduationConfig, start_equity: float) -> lis
         prog = 1.0 if lo > 0 else ((m + hw) / (2 * hw) if hw > 0 else (1.0 if m > 0 else 0.0))
         dv = f"{lo:+.1%} (average {m:+.1%})"
     else:
-        prog, dv = 0.0, "—"
+        prog, dv = 0.0, "–"
     ok = (n >= 2 and lo > 0) if g.require_positive_ci else True
     out.append(_crit("edge_ci", "Edge is real", "Profit per trade as a share of the amount risked: even the cautious end of "
                      "the 90% range must be above zero, so it is unlikely to be luck.",

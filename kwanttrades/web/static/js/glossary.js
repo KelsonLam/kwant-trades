@@ -92,7 +92,7 @@ export const CAUSES = {
   win: "Win",
 };
 
-export const exitLabel = (r) => (r ? EXIT_REASONS[r] || String(r).replace(/_/g, " ") : "—");
+export const exitLabel = (r) => (r ? EXIT_REASONS[r] || String(r).replace(/_/g, " ") : "–");
 
 export const COMPONENTS = [
   { key: "orb", name: "Opening range", term: "opening_range" },
@@ -111,8 +111,8 @@ export const ORB_STATES = {
 
 export const MODES = {
   idle: { label: "IDLE", desc: "Not running", practice: false },
-  scan: { label: "SCAN", desc: "Looking only — no orders", practice: false },
-  shadow: { label: "SHADOW", desc: "Recording what it would trade — no orders sent", practice: false },
+  scan: { label: "SCAN", desc: "Looking only, no orders", practice: false },
+  shadow: { label: "SHADOW", desc: "Recording what it would trade, no orders sent", practice: false },
   paper: { label: "PAPER", desc: "Practice money (built-in simulator)", practice: true },
   alpaca_paper: { label: "ALPACA PAPER", desc: "Practice money (Alpaca paper account)", practice: true },
 };

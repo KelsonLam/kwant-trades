@@ -4,6 +4,7 @@
 // timed-out POST may already have been applied by the server.
 let demo = false;
 let demoReason = "";
+const STATIC_DEMO_HOST = /\.github\.io$/i;
 let remote = false;
 let mockModule = null;
 
@@ -89,13 +90,14 @@ export const post = (path, body = {}) => request("POST", path, body);
 /** Decide LIVE vs DEMO. Returns the first status payload. */
 export async function init() {
   const params = new URLSearchParams(location.search);
-  if (params.get("demo") === "1") {
+  // The hosted demo site (GitHub Pages) has no server behind it, so it always shows sample data.
+  if (params.get("demo") === "1" || STATIC_DEMO_HOST.test(location.hostname)) {
     demo = true;
-    demoReason = "Opened with ?demo=1";
+    demoReason = "";
   } else if (location.protocol === "file:") {
     // Opened straight from disk: there is no server to probe (the probe would only log a failed request).
     demo = true;
-    demoReason = "The page was opened as a local file, so built-in sample data is shown";
+    demoReason = "Opened as a local file.";
   } else {
     try {
       // /api/session doubles as the "is there a server?" probe, so a static-only host costs one failed (retried) request.
@@ -105,7 +107,7 @@ export async function init() {
       return await liveRequest("GET", "/api/status");
     } catch (e) {
       demo = true;
-      demoReason = "The Kwant Trades server didn't answer, so built-in sample data is shown";
+      demoReason = "The server is not responding.";
     }
   }
   return request("GET", "/api/status");

@@ -22,7 +22,7 @@ function critRow(c) {
   return h("li", { class: "row" }, h("div", { class: "row-main static stacked" },
     h("div", { class: "risk-line" },
       h("span", { class: "head-with" }, critIcon(c.pass), h("span", { class: "cell-title" }, String(c.label ?? ""))),
-      h("span", { class: "num muted small" }, `${c.display_value ?? "—"} · need ${c.display_target ?? "—"}`)),
+      h("span", { class: "num muted small" }, `${c.display_value ?? "–"} · need ${c.display_target ?? "–"}`)),
     bar(c.progress, { level: "ok", label: `${c.label}: ${pctTxt(c.progress)} of the way` }),
     c.plain ? h("p", { class: "cell-sub" }, String(c.plain)) : null));
 }
@@ -50,7 +50,7 @@ export function roadCard() {
       frac = g.progress;
       title = "Road to Alpaca";
       const lines = furthest(g.criteria).map((c) => h("span", { class: "road-line" },
-        h("span", { class: "risk-line" }, h("span", null, String(c.label ?? "")), h("span", { class: "num" }, `${c.display_value ?? "—"} / ${c.display_target ?? "—"}`)),
+        h("span", { class: "risk-line" }, h("span", null, String(c.label ?? "")), h("span", { class: "num" }, `${c.display_value ?? "–"} / ${c.display_target ?? "–"}`)),
         bar(c.progress, { level: "ok", label: `${c.label}: ${pctTxt(c.progress)} of the way` })));
       if (g.ready) {
         sub = h("span", null, g.needs?.length ? "Every check passes. One step is left for you." : "Every check passes. Moving to Alpaca paper…");
@@ -83,7 +83,7 @@ function sheetContent(g) {
   const oos = g.out_of_sample || {};
   if ((oos.criteria || []).length) {
     out.push(group(oos.criteria.map(critRow), {
-      header: `Fresh trades since the last change (${oos.trades ?? 0} of ${oos.required ?? "—"})`,
+      header: `Fresh trades since the last change (${oos.trades ?? 0} of ${oos.required ?? "–"})`,
       footer: oos.since ? `Counting trades opened after ${dateNY(oos.since)} ${timeNY(oos.since)} NY, when the system last changed a setting.` : "No learning change yet, so every trade counts.",
     }));
   }

@@ -27,8 +27,8 @@ export function render(root, params) {
   symSel.value = current.symbol;
   const expSel = h("select", { id: "v-exp", disabled: true }, h("option", { value: "" }, "Loading…"));
   const legend = h("ul", { class: "legend small" },
-    h("li", null, h("span", { class: "lg-dot call", "aria-hidden": "true" }), "Call — market IV"),
-    h("li", null, h("span", { class: "lg-sq put", "aria-hidden": "true" }), "Put — market IV"),
+    h("li", null, h("span", { class: "lg-dot call", "aria-hidden": "true" }), "Call: market IV"),
+    h("li", null, h("span", { class: "lg-sq put", "aria-hidden": "true" }), "Put: market IV"),
     h("li", null, h("span", { class: "lg-whisk", "aria-hidden": "true" }), "Bid–ask range"),
     h("li", null, h("span", { class: "lg-line", "aria-hidden": "true" }), term("svi", "Fitted curve")),
     h("li", null, h("span", { class: "lg-flag cheap", "aria-hidden": "true" }), term("cheap", "Cheap")),
@@ -53,7 +53,7 @@ export function render(root, params) {
         const slices = d?.slices || [];
         const want = slices.map((s) => s.expiry).join("|");
         if ([...expSel.options].map((o) => o.value).join("|") !== want) {
-          expSel.replaceChildren(...slices.map((s) => h("option", { value: s.expiry }, `${ymd(s.expiry)} (${isNum(s.dte) ? s.dte + " days" : "—"})`)));
+          expSel.replaceChildren(...slices.map((s) => h("option", { value: s.expiry }, `${ymd(s.expiry)} (${isNum(s.dte) ? s.dte + " days" : "–"})`)));
         }
         expSel.disabled = !slices.length;
         if (!slices.find((s) => s.expiry === current.expiry)) current.expiry = slices.length > 1 ? slices[1].expiry : slices[0]?.expiry;
@@ -64,7 +64,7 @@ export function render(root, params) {
         return h("div", { class: "card chart-card" },
           legend,
           smileChart(sl, { height: 300, spot: d.spot }),
-          h("p", { class: "small muted" }, `Fit: ${sl.method || "—"} · fit error (RMSE) ${pct(sl.rmse, 2)} · forward ${price(sl.forward)} · ${flagged.length} flagged point${flagged.length === 1 ? "" : "s"} · as of ${timeNY(d.asof)} NY`));
+          h("p", { class: "small muted" }, `Fit: ${sl.method || "–"} · fit error (RMSE) ${pct(sl.rmse, 2)} · forward ${price(sl.forward)} · ${flagged.length} flagged point${flagged.length === 1 ? "" : "s"} · as of ${timeNY(d.asof)} NY`));
       },
       empty: { title: "No surface for this symbol", hint: "Run a scan, or pick another symbol." },
     });
@@ -82,10 +82,10 @@ export function render(root, params) {
           h("tbody", null, m.slice(0, 30).map((x) => {
             const cheap = isNum(x.edge) && x.edge > 0;
             return h("tr", null,
-              h("td", null, h("span", { class: "mono small" }, x.occ ?? "—"), h("div", { class: "small muted" }, x.notes ? String(x.notes) : "", " ", isNum(x.market_iv) ? `IV ${pct(x.market_iv)} vs fair ${pct(x.fair_iv)}` : "")),
-              h("td", null, flagChip(cheap ? "cheap" : "rich"), h("div", { class: "small muted" }, String(x.model ?? "—"))),
-              h("td", { class: "num" }, isNum(x.edge_after_costs) ? signedNum(x.edge_after_costs, 2) : "—", h("div", { class: "small muted" }, "per share")),
-              h("td", { class: "num" }, isNum(x.zscore) ? num(x.zscore, 1) : "—"));
+              h("td", null, h("span", { class: "mono small" }, x.occ ?? "–"), h("div", { class: "small muted" }, x.notes ? String(x.notes) : "", " ", isNum(x.market_iv) ? `IV ${pct(x.market_iv)} vs fair ${pct(x.fair_iv)}` : "")),
+              h("td", null, flagChip(cheap ? "cheap" : "rich"), h("div", { class: "small muted" }, String(x.model ?? "–"))),
+              h("td", { class: "num" }, isNum(x.edge_after_costs) ? signedNum(x.edge_after_costs, 2) : "–", h("div", { class: "small muted" }, "per share")),
+              h("td", { class: "num" }, isNum(x.zscore) ? num(x.zscore, 1) : "–"));
           })))));
       },
       empty: { title: "Nothing mispriced right now", hint: "No option is off the fitted curve by more than its bid–ask spread." },

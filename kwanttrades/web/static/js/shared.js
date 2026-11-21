@@ -22,7 +22,7 @@ export const isPracticeMode = () => { const st = status(); return !!(st && st.ru
 export async function startScan(symbols = null) {
   try {
     await api.scan(symbols);
-    toast("Scan started — this looks only; it never places orders.");
+    toast("Scan started. A scan only looks and never places orders.");
     announce("Scan started");
     store.refresh("scan");
   } catch (e) {
@@ -88,7 +88,7 @@ export function quoteNote({ banner = true } = {}) {
     const txt = st?.data_delay_note || "Quotes may be delayed.";
     const closed = st?.market?.state === "closed";
     el.replaceChildren(...[
-      banner && closed ? h("p", { class: "inline-banner", role: "note" }, icon("clock", { size: 16 }), h("span", null, "Market closed — prices shown are from the last session.")) : null,
+      banner && closed ? h("p", { class: "inline-banner", role: "note" }, icon("clock", { size: 16 }), h("span", null, "Market closed. Prices shown are from the last session.")) : null,
       h("p", { class: "delay-note" }, term("data_delay", "Data:"), " ", txt)].filter(Boolean));
   };
   el._cleanup = store.subscribe("status", draw);
@@ -111,7 +111,7 @@ export function ideaHeadline(i) {
 }
 
 export function ideaSummary(i) {
-  const risk = isNum(i.max_loss) ? money(i.max_loss, { cents: false }) : "—";
+  const risk = isNum(i.max_loss) ? money(i.max_loss, { cents: false }) : "–";
   const gain = i.max_profit == null ? "for unlimited upside" : `to make up to ${money(i.max_profit, { cents: false })}`;
   return `${ideaHeadline(i)} · risk ${risk} ${gain}`;
 }
@@ -123,9 +123,9 @@ export function gateChip(d) {
 
 /** One idea as a list row. onOpen(idea) opens its sheet. */
 export function ideaRow(idea, { onOpen = null, rank = null } = {}) {
-  const pop = isNum(idea.pop) ? pct(idea.pop, 0) : "—";
+  const pop = isNum(idea.pop) ? pct(idea.pop, 0) : "–";
   return row({
-    title: h("span", { class: "idea-title-line" }, rank != null ? h("span", { class: "rank-n" }, String(rank)) : null, h("span", { class: "sym" }, idea.symbol ?? "—"), gateChip(idea.decision)),
+    title: h("span", { class: "idea-title-line" }, rank != null ? h("span", { class: "rank-n" }, String(rank)) : null, h("span", { class: "sym" }, idea.symbol ?? "–"), gateChip(idea.decision)),
     sub: ideaSummary(idea),
     trailing: h("span", { class: "pop" }, h("strong", { class: "num" }, pop), h("span", { class: "pop-lbl" }, "chance")),
     chevron: true,
@@ -140,12 +140,12 @@ function tile(lbl, value, v) {
   return h("div", { class: "tile" }, h("dt", null, lbl), h("dd", { class: `num ${isNum(v) ? (v > 0 ? "gain" : v < 0 ? "loss" : "") : ""}` }, value));
 }
 
-const sideWord = (s) => (s === "buy" ? "Buy" : s === "sell" ? "Sell" : "—");
+const sideWord = (s) => (s === "buy" ? "Buy" : s === "sell" ? "Sell" : "–");
 
 /** Option legs as list rows (phone friendly). */
 export function legsGroup(legs, { header = "The legs" } = {}) {
   const rows = (legs || []).map((l) => row({
-    title: `${sideWord(l.side)}${l.ratio > 1 ? ` ×${l.ratio}` : ""} · ${isNum(l.strike) ? num(l.strike, l.strike % 1 ? 1 : 0) : "—"} ${l.right === "C" ? "call" : l.right === "P" ? "put" : ""}`,
+    title: `${sideWord(l.side)}${l.ratio > 1 ? ` ×${l.ratio}` : ""} · ${isNum(l.strike) ? num(l.strike, l.strike % 1 ? 1 : 0) : "–"} ${l.right === "C" ? "call" : l.right === "P" ? "put" : ""}`,
     sub: `Expires ${ymd(l.expiry)} · bid ${price(l.bid)} / ask ${price(l.ask)}`,
     trailing: flagChip(l.flag),
   }));
@@ -180,10 +180,10 @@ export function openIdeaSheet(idea) {
           tile(term("max_profit", "Most you can make"), idea.max_profit == null ? "Unlimited" : money(idea.max_profit, { cents: false }))),
         h("div", { class: "sheet-card" }, payoffChart(idea, { height: 170, animate: true }),
           h("p", { class: "small muted" }, "Profit or loss at expiry for each stock price. ", term("breakeven", "Breakeven"), ": ",
-            (idea.breakevens || []).filter(isNum).map((b) => price(b)).join(" and ") || "—", " · stock now ", isNum(idea.spot) ? price(idea.spot) : "—")),
+            (idea.breakevens || []).filter(isNum).map((b) => price(b)).join(" and ") || "–", " · stock now ", isNum(idea.spot) ? price(idea.spot) : "–")),
         h("p", { class: "price-line" }, credit ? "Collect " : "Pay ", h("strong", { class: "num" }, money(Math.abs(idea.net_price))), " per share at mid · ",
           term("entry_limit", "limit"), " ", h("span", { class: "num" }, price(idea.entry_limit)), " · ",
-          term("contracts", "contracts"), " ", h("strong", { class: "num" }, isNum(idea.contracts) ? String(idea.contracts) : "—"),
+          term("contracts", "contracts"), " ", h("strong", { class: "num" }, isNum(idea.contracts) ? String(idea.contracts) : "–"),
           isNum(idea.contracts) && idea.contracts > 0 && isNum(idea.max_loss) ? h("span", { class: "muted" }, ` (worst case ${money(idea.max_loss * idea.contracts, { cents: false })})`) : null,
           idea.intraday ? h("span", { class: "pill" }, "day trade") : null),
         (idea.rationale || []).length ? group([...(idea.rationale || []).map((r) => row({ title: h("span", { class: "wrap" }, String(r)) }))], { header: "Why the system likes it" }) : null,
@@ -214,13 +214,13 @@ export function progressPair(p) {
 
 export function modeBadge(st) {
   const mode = st?.running ? st.mode : "idle";
-  const m = MODES[mode] || { label: String(mode || "—").toUpperCase(), desc: "", practice: false };
+  const m = MODES[mode] || { label: String(mode || "–").toUpperCase(), desc: "", practice: false };
   return h("span", { class: `mode-badge mode-${mode} ${m.practice ? "practice" : ""}`, "data-tip": m.desc, title: m.desc },
     h("span", { class: "mb-dot", "aria-hidden": "true" }), m.label);
 }
 
 export function emptyIdeas() {
-  return { title: "No trade ideas yet", hint: "Run a scan to see opportunities. A scan only looks — it never places orders.", action: h("button", { type: "button", class: "btn primary small", onclick: () => startScan() }, "Scan now") };
+  return { title: "No trade ideas yet", hint: "Run a scan to see opportunities. A scan only looks and never places orders.", action: h("button", { type: "button", class: "btn primary small", onclick: () => startScan() }, "Scan now") };
 }
 
 export { stagger, emptyState, signed, dateTimeNY, isDemo, spinner };

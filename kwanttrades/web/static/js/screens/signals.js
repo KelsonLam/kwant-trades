@@ -19,11 +19,11 @@ export function directionBar(dir, conf, { size = "" } = {}) {
 const signedNumber = (d) => (d > 0 ? "+" : d < 0 ? "−" : "") + Math.abs(d).toFixed(2);
 
 function compChip(c, comp) {
-  if (!comp) return h("span", { class: "comp none", "data-term": c.term, tabindex: "0" }, c.name, h("span", { class: "comp-v" }, "—"));
+  if (!comp) return h("span", { class: "comp none", "data-term": c.term, tabindex: "0" }, c.name, h("span", { class: "comp-v" }, "–"));
   const d = comp.direction;
   const cls = !isNum(d) || Math.abs(d) < 0.05 ? "flat" : d > 0 ? "gain" : "loss";
   return h("span", { class: `comp ${cls}`, "data-term": c.term, tabindex: "0" },
-    c.name, h("span", { class: "comp-v" }, h("span", { "aria-hidden": "true" }, cls === "gain" ? "▲" : cls === "loss" ? "▼" : "◆"), " ", isNum(d) ? signedNumber(d) : "—"),
+    c.name, h("span", { class: "comp-v" }, h("span", { "aria-hidden": "true" }, cls === "gain" ? "▲" : cls === "loss" ? "▼" : "◆"), " ", isNum(d) ? signedNumber(d) : "–"),
     h("span", { class: "comp-c", style: { "--c": isNum(comp.confidence) ? comp.confidence : 0 } }));
 }
 
@@ -32,7 +32,7 @@ function volView(v) {
   const max = Math.max(v.atm_iv || 0, v.forecast_rv || 0, 0.01) * 1.15;
   const bar = (val, cls) => { const f = h("span", { class: `vb-fill ${cls}` }); f.style.transform = `scaleX(${isNum(val) ? val / max : 0})`; return h("span", { class: "vb" }, f); };
   const e = v.vol_edge;
-  const verdict = !isNum(e) ? "—" : e > 0.1 ? "Options look cheap" : e < -0.1 ? "Options look expensive" : "Options look fairly priced";
+  const verdict = !isNum(e) ? "–" : e > 0.1 ? "Options look cheap" : e < -0.1 ? "Options look expensive" : "Options look fairly priced";
   return h("div", { class: "volview" },
     h("div", { class: "vb-row" }, h("span", { class: "small" }, term("iv", "Implied")), bar(v.atm_iv, "iv"), h("span", { class: "num small" }, pct(v.atm_iv))),
     h("div", { class: "vb-row" }, h("span", { class: "small" }, term("rv", "Forecast")), bar(v.forecast_rv, "rv"), h("span", { class: "num small" }, pct(v.forecast_rv))),
@@ -44,7 +44,7 @@ function symbolCard(s) {
   const orbState = orb?.state ? ORB_STATES[orb.state] || orb.state : "No opening range yet";
   return h("article", { class: "card sig" },
     h("header", { class: "sig-head" },
-      h("div", null, h("h3", null, h("span", { class: "sym" }, s.symbol ?? "—")),
+      h("div", null, h("h3", null, h("span", { class: "sym" }, s.symbol ?? "–")),
         h("p", { class: "num" }, price(s.spot), " ", signed(signedPct(s.change_pct, 2), s.change_pct, "small"))),
       sparkline(s.sparkline, { w: 128, hgt: 36, label: `${s.symbol} today` })),
     directionBar(s.composite?.direction, s.composite?.confidence),
