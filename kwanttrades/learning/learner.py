@@ -19,6 +19,11 @@ Rules (each a small pure function; ``r`` = realised P&L / max loss of the trade)
                            or, if already at its floor, DRIFT_K is lowered (-0.05).
 * Direction .............. n >= 20 directional trades: if the 90% Clopper-Pearson interval of the hit rate lies
                            entirely below 50%, DRIFT_K -0.05; when DRIFT_K is at its floor, min_direction +0.05.
+* News ................... n >= 20 trades where the news had a real opinion at entry (|direction| x confidence
+                           >= 0.05): if the 90% Clopper-Pearson interval of "news leaned the way the stock then
+                           moved" lies entirely below 50%, the news weight in the signal blend drops by 0.25 (down to
+                           0 = ignore news); entirely above 50%, it rises by 0.25 (up to 1.5x). The raw news signal is
+                           recorded on every trade even while its weight is low, so news can earn its weight back.
 * Exits .................. replay closed trades along their recorded mark paths (including post-exit tracking)
                            under a small stop/take grid; adopt a pair only if it beats the current pair by >= 3%
                            of max loss per trade with the 80% interval of the paired gain above 0 on the first
@@ -64,6 +69,8 @@ MIN_TOTAL = 20
 MIN_STRATEGY = 10
 MIN_CALIBRATION = 20
 MIN_DIRECTION = 20
+MIN_NEWS = 20
+NEWS_STEP = 0.25
 MIN_EXITS = 25
 MIN_TOD_BUCKET = 15
 AUTO_REVERT_N = 15
@@ -130,6 +137,9 @@ def knob_table(min_conf_default: float = ENGINE_DEFAULTS["min_confidence"]) -> d
                               "Close a trade once it has lost this share of its maximum loss."),
         "take_profit_pct": Knob("take_profit_pct", "Take-profit", 0.35, 0.75, "pct",
                                 "Close a trade once it has made this share of its maximum profit."),
+        "news_weight": Knob("news_weight", "Weight on news", 0.0, 1.5, "mult",
+                            "How much recent headlines count in the direction call, compared with the setting in "
+                            "config.toml (0 = ignore news)."),
         "no_entry_before": Knob("no_entry_before", "No new trades before", float(ENTRY_FLOOR_MIN), 11 * 60.0, "time",
                                 "The earliest time of day a new trade may be opened (New York time)."),
     }
@@ -331,6 +341,27 @@ def rule_direction(trades: list[dict], values: dict, knobs: dict[str, Knob], sin
     return None
 
 
+def rule_news(trades: list[dict], values: dict, knobs: dict[str, Knob], since: dict[str, datetime | None]) -> dict | None:
+    sel = [t for t in _after(trades, since.get("news_weight")) if (t.get("outcome") or {}).get("news_right") is not None]
+    n = len(sel)
+    if n < MIN_NEWS:
+        return None
+    k = sum(1 for t in sel if t["outcome"]["news_right"])
+    lo, hi = stats.proportion_ci(k, n, 0.90)
+    ev = {"n": n, "right": k, "hit_rate": round(k / n, 4), "ci90": [round(lo, 4), round(hi, 4)],
+          "test": "90% Clopper-Pearson interval"}
+    w, kn = values["news_weight"], knobs["news_weight"]
+    if hi < 0.5 and w > kn.lo + 1e-9:
+        return proposal("news_weight", w, round(max(kn.lo, w - NEWS_STEP), 4), "news",
+                        f"Listens to the news less: the headlines leaned the way the stock then moved in only {k} of {n} "
+                        f"trades ({k / n:.0%}); even the hopeful end of the 90% range ({hi:.0%}) is worse than a coin flip.", ev)
+    if lo > 0.5 and w < kn.hi - 1e-9:
+        return proposal("news_weight", w, round(min(kn.hi, w + NEWS_STEP), 4), "news",
+                        f"Listens to the news more: the headlines leaned the way the stock then moved in {k} of {n} trades "
+                        f"({k / n:.0%}); even the cautious end of the 90% range ({lo:.0%}) beats a coin flip.", ev)
+    return None
+
+
 def replay_trade(t: dict, path: list[dict], stop: float, take: float, flatten_time: str = "15:55") -> float | None:
     """r (P&L / max loss, per contract-set, at mid marks) of trade `t` had it used stop/take, replayed along its
     mark path. Exits that the replay cannot re-derive (signal turned, kill switch, by hand, end of day) happen at
@@ -492,7 +523,7 @@ class Learner:
     def defaults(self) -> dict[str, float]:
         c = self.cfg
         return {"min_direction": float(c.scan.min_direction), "min_vol_edge": float(c.scan.min_vol_edge),
-                **{k: float(v) for k, v in ENGINE_DEFAULTS.items()}, **EXIT_DEFAULTS,
+                **{k: float(v) for k, v in ENGINE_DEFAULTS.items()}, **EXIT_DEFAULTS, "news_weight": 1.0,
                 "no_entry_before": float(_min(c.risk.entry_window_start))}
 
     def knob(self, key: str) -> Knob:
@@ -573,6 +604,15 @@ class Learner:
         if idea.score < self.cfg.scan.min_score:
             return f"BLOCK: score {idea.score:.3f} is below the minimum after the learned {name} weight ({w:.2f})"
         return None
+
+    def signal_weights(self, base: dict[str, float]) -> dict[str, float]:
+        """The configured signal-blend weights with the learned news weight applied (base is never modified)."""
+        m = self.values().get("news_weight", 1.0)
+        if "news" not in base or abs(m - 1.0) < 1e-9:
+            return base
+        out = dict(base)
+        out["news"] = round(float(base["news"]) * m, 6)
+        return out
 
     def entry_start(self, base_start: str) -> str:
         """The later of the configured entry-window start and the learned "no new trades before"."""
@@ -726,6 +766,7 @@ class Learner:
         v, w, since = self.values(), self.weights(), self._since()
         rules: list[Callable[[], dict | None]] = [
             lambda: rule_strategy_pause(trades, w, since),
+            lambda: rule_news(trades, v, self.knobs, since),
             lambda: rule_direction(trades, v, self.knobs, since),
             lambda: rule_calibration(trades, v, self.knobs, since),
             lambda: rule_exits(trades, paths, v, self.knobs, self.cfg.risk.flatten_time),
@@ -820,6 +861,8 @@ class Learner:
             return _hm(f)
         if kn.fmt == "pct":
             return f"{f:.0%}"
+        if kn.fmt == "mult":
+            return f"{f:.2f}×"
         if kn.fmt == "weight":
             return "paused" if f <= 0 else f"{f:.2f}×"
         return f"{f:.2f}"

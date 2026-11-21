@@ -763,10 +763,10 @@ class WebApp:
         f, o = pm.get("features") or {}, pm.get("outcome") or {}
         keep_o = ("move_pct", "move_sigma", "direction_right", "realized_vs_implied", "realized_vs_model", "hold_minutes",
                   "sessions_held", "entry_spot", "exit_spot", "cost_total", "gross_pnl", "gap_sigma", "best_post_pnl",
-                  "recovered", "entry_price", "exit_price")
+                  "recovered", "entry_price", "exit_price", "news_right")
         keep_f = ("direction_call", "composite_direction", "composite_confidence", "vol_edge", "risk_multiplier",
                   "orb_state", "entry_bucket_min", "dte_entry", "model_ev", "pop", "score", "entry_iv", "cost_frac",
-                  "intraday", "stop_loss_pct", "take_profit_pct", "recorded")
+                  "intraday", "stop_loss_pct", "take_profit_pct", "recorded", "news_direction", "news_confidence")
         return {
             "position_id": pm["position_id"], "symbol": pm["symbol"], "strategy": pm["strategy"],
             "strategy_label": strategy_label(pm["strategy"] or ""), "mode": pm["mode"], "opened": pm["opened"],

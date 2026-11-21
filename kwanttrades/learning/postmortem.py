@@ -40,6 +40,7 @@ CAUSES = {
 GAP_SIGMA = 2.0  # an overnight jump this many daily sigmas against the trade is a "gap" loss
 VOL_RATIO_LOW = 0.8  # realised move below this share of the model's expected move = "moved less than expected"
 VOL_RATIO_HIGH = 1.25
+NEWS_MIN_STRENGTH = 0.05  # |news direction| x confidence below this = "news had no real opinion", not judged
 SESSION_MINUTES = 390.0
 OVERNIGHT_SESSIONS = 0.25  # variance credited to each overnight gap, in sessions
 LONG_VOL = {"long_straddle", "long_strangle"}
@@ -100,7 +101,8 @@ def round_trip_cost(idea: TradeIdea, slip: float = 0.5, commission: float = 0.65
     return (entry_cross + slip * hs) * MULTIPLIER + 2.0 * commission * n_legs
 
 
-def entry_features(idea: TradeIdea, *, now: datetime, contracts: int, composite: Any = None, orb_state: str | None = None,
+def entry_features(idea: TradeIdea, *, now: datetime, contracts: int, composite: Any = None, news: Any = None,
+                   orb_state: str | None = None,
                    spot: float | None = None, analysis: Any = None, risk_multiplier: float = 1.0,
                    slip: float = 0.5, commission: float = 0.65) -> dict:
     """Everything the post-mortem needs from the moment of entry (JSON-friendly)."""
@@ -121,6 +123,9 @@ def entry_features(idea: TradeIdea, *, now: datetime, contracts: int, composite:
         "strategy": idea.strategy, "symbol": idea.symbol, "direction_call": idea_direction(idea),
         "composite_direction": _f(getattr(composite, "direction", None)),
         "composite_confidence": _f(getattr(composite, "confidence", None)),
+        # the raw news signal, recorded even while learning has turned its weight down, so it can earn weight back
+        "news_direction": _f(getattr(news, "direction", None)),
+        "news_confidence": _f(getattr(news, "confidence", None)),
         "vol_edge": vol_edge, "risk_multiplier": _f(risk_multiplier), "orb_state": orb_state,
         "entry_time": now.astimezone(NY).isoformat(), "entry_bucket_min": bucket_minutes(now),
         "dte_entry": (exp - now.astimezone(NY).date()).days, "model_ev": _f(idea.expected_value), "pop": _f(idea.pop),
@@ -138,7 +143,8 @@ def fallback_features(pos: Position, slip: float = 0.5, commission: float = 0.65
     cost = round_trip_cost(idea, slip, commission)
     return {
         "strategy": idea.strategy, "symbol": idea.symbol, "direction_call": idea_direction(idea),
-        "composite_direction": None, "composite_confidence": None, "vol_edge": None, "risk_multiplier": None,
+        "composite_direction": None, "composite_confidence": None, "news_direction": None, "news_confidence": None,
+        "vol_edge": None, "risk_multiplier": None,
         "orb_state": None, "entry_time": pos.opened.astimezone(NY).isoformat(),
         "entry_bucket_min": bucket_minutes(pos.opened), "dte_entry": (idea.expiry - pos.opened.astimezone(NY).date()).days,
         "model_ev": _f(idea.expected_value), "pop": _f(idea.pop), "score": _f(idea.score), "entry_iv": None,
@@ -191,6 +197,11 @@ def outcome(pos: Position, feats: dict, marks: list[dict], exit_spot: float | No
     dir_right = None
     if dcall and move_pct is not None and move_pct != 0:
         dir_right = (move_pct > 0) == (dcall > 0)
+    # did the news lean the way the stock then moved? (judged on every trade, directional or not)
+    nd, nc = _f(feats.get("news_direction")), _f(feats.get("news_confidence"))
+    news_right = None
+    if nd is not None and nc is not None and abs(nd) * nc >= NEWS_MIN_STRENGTH and move_pct is not None and move_pct != 0:
+        news_right = (move_pct > 0) == (nd > 0)
     cost_total = (feats.get("cost_per_set") or 0.0) * pos.contracts
     gap = overnight_gap(marks, opened, closed, dcall, idea.strategy, feats.get("model_sigma_daily") or (iv / math.sqrt(252.0) if iv else None))
     post = post_exit(pos, marks, flatten_time)
@@ -198,7 +209,7 @@ def outcome(pos: Position, feats: dict, marks: list[dict], exit_spot: float | No
         "realized_pnl": round(pnl, 2), "max_loss_total": round(ml_total, 2), "r": round(r, 4),
         "exit_reason": pos.exit_reason, "hold_minutes": round(hold_min, 1), "sessions_held": round(sessions, 3),
         "entry_spot": _f(s0), "exit_spot": _f(exit_spot), "move_pct": _f(move_pct), "move_sigma": _f(move_sigma),
-        "direction_right": dir_right, "realized_vs_implied": _f(rv_iv), "realized_vs_model": _f(rv_model),
+        "direction_right": dir_right, "news_right": news_right, "realized_vs_implied": _f(rv_iv), "realized_vs_model": _f(rv_model),
         "cost_total": round(cost_total, 2), "gross_pnl": round(pnl + cost_total, 2), "gap_sigma": _f(gap),
         "best_post_pnl": post["best_pnl"], "recovered": post["recovered"], "post_marks": post["n"],
         "entry_price": float(pos.entry_price), "exit_price": _f(pos.exit_price),

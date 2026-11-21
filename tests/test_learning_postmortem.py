@@ -119,7 +119,8 @@ def test_entry_features_marks_and_post_mortem_on_close():
     pos = h.broker.positions()[0]
     f = h.journal.entry_features(pos.id)
     for k in ("strategy", "symbol", "dte_entry", "composite_direction", "composite_confidence", "vol_edge",
-              "risk_multiplier", "orb_state", "entry_bucket_min", "model_ev", "pop", "score", "entry_iv", "cost_frac"):
+              "risk_multiplier", "orb_state", "entry_bucket_min", "model_ev", "pop", "score", "entry_iv", "cost_frac",
+              "news_direction", "news_confidence"):
         assert k in f, k
     assert f["recorded"] is True and f["entry_bucket_min"] == 45 and f["entry_spot"] > 0
     h.provider.factor = 0.3  # crash the option prices -> stop-loss
@@ -174,3 +175,25 @@ def test_scan_and_shadow_sessions_record_nothing():
     assert h.journal.post_mortems() == []
     assert h.journal._query("SELECT COUNT(*) AS n FROM mark_paths")[0]["n"] == 0
     assert h.journal._query("SELECT COUNT(*) AS n FROM entry_features")[0]["n"] == 0
+
+
+
+def test_news_signal_is_recorded_and_judged_against_the_move():
+    h = _hub_session()
+    h.session.step(THU)
+    pos = h.broker.positions()[0]
+    f = h.journal.entry_features(pos.id)
+    assert "news_direction" in f and "news_confidence" in f
+    h.provider.factor = 0.3
+    h.clock.set(at(12, 10, 45))
+    h.session.step()
+    closed = next(p for p in h.journal.closed_positions() if p.id == pos.id)
+    row = h.journal.post_mortem(pos.id)
+    assert "news_right" in row["outcome"]
+    s0 = row["outcome"]["entry_spot"]
+    marks = h.journal.marks(pos.id)
+    bull = {**row["features"], "news_direction": 0.6, "news_confidence": 0.5}
+    weak = {**row["features"], "news_direction": 0.05, "news_confidence": 0.5}
+    assert pm.outcome(closed, bull, marks, s0 * 1.02)["news_right"] is True
+    assert pm.outcome(closed, bull, marks, s0 * 0.98)["news_right"] is False
+    assert pm.outcome(closed, weak, marks, s0 * 1.02)["news_right"] is None   # too weak an opinion to judge

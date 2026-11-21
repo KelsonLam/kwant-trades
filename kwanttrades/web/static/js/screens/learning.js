@@ -50,6 +50,7 @@ function openPostMortem(p) {
         group([h("li", { class: "row" }, h("div", { class: "row-main static stacked" }, kv([
           ["Bet on the stock going", dir],
           ["Was the direction right?", yesNo(e.direction_right)],
+          ["Did the news lean the way the stock moved?", yesNo(e.news_right)],
           ["Move compared with a normal day", isNum(e.move_sigma) ? times(Math.abs(e.move_sigma)) : "–"],
           ["Move compared with what options priced in", times(e.realized_vs_implied)],
           ["Move compared with what the model expected", times(e.realized_vs_model)],
@@ -62,6 +63,8 @@ function openPostMortem(p) {
           kv([
             ["Signal direction (−1 to +1)", isNum(e.composite_direction) ? num(e.composite_direction, 2) : "–"],
             ["Signal confidence", isNum(e.composite_confidence) ? pct(e.composite_confidence, 0) : "–"],
+            ["News sentiment (−1 to +1)", isNum(e.news_direction) ? num(e.news_direction, 2) : "–"],
+            ["News confidence", isNum(e.news_confidence) ? pct(e.news_confidence, 0) : "–"],
             ["Chance of profit (model)", isNum(e.pop) ? pct(e.pop, 0) : "–"],
             ["Expected value (model)", isNum(e.model_ev) ? signedMoney(e.model_ev) : "–"],
             ["Volatility edge", isNum(e.vol_edge) ? pct(e.vol_edge, 0) : "–"],

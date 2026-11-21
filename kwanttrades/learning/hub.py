@@ -47,6 +47,13 @@ class LearningHub:
             log.warning("learned entry start failed: %s", exc)
             return base_start
 
+    def signal_weights(self, base: dict[str, float]) -> dict[str, float]:
+        try:
+            return self.learner.signal_weights(base)
+        except Exception as exc:  # pragma: no cover
+            log.warning("learned signal weights failed: %s", exc)
+            return base
+
     @staticmethod
     def records(session: Any) -> bool:
         return getattr(session, "mode", None) in LEARNING_MODES and getattr(session, "broker", None) is not None
@@ -131,6 +138,7 @@ class LearningHub:
             orb = (getattr(rec, "components", None) or {}).get("orb")
             b = self.cfg.broker
             feats = pmmod.entry_features(idea, now=now, contracts=contracts, composite=comp,
+                                         news=(getattr(rec, "components", None) or {}).get("news"),
                                          orb_state=(orb.detail.get("state") if orb is not None else None),
                                          spot=getattr(rec, "spot", None), analysis=analysis, risk_multiplier=rm,
                                          slip=b.slippage_frac_of_half_spread, commission=b.commission_per_contract)

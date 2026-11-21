@@ -383,3 +383,68 @@ def test_property_random_reviews_never_loosen_risk_caps_and_stay_in_bounds():
             assert eff[cap] == base_risk[cap], cap
         assert eff["entry_window_start"] >= base_risk["entry_window_start"]
         assert dataclasses.asdict(cfg.risk) == base_risk  # the shared config itself is never modified
+
+
+# --------------------------------------------------------------------------- news weight
+def news_trades(n, hits, **kw):
+    ts = [trade(i, 0.1 if i % 2 else -0.1, dcall=0, **kw) for i in range(n)]
+    for i, t in enumerate(ts):
+        t["outcome"]["news_right"] = i < hits
+    return ts
+
+
+def test_news_rule_turns_news_down_when_headlines_keep_pointing_the_wrong_way():
+    L = learner()
+    p = lm.rule_news(news_trades(30, 7), L.values(), lm.knob_table(), {})
+    assert p["knob"] == "news_weight" and p["before"] == 1.0 and p["after"] == 0.75
+    assert "7 of 30" in p["reason"] and p["evidence"]["ci90"][1] < 0.5
+
+
+def test_news_rule_turns_news_up_when_headlines_keep_being_right():
+    L = learner()
+    p = lm.rule_news(news_trades(30, 24), L.values(), lm.knob_table(), {})
+    assert p["after"] == 1.25 and "more" in p["reason"]
+
+
+def test_news_rule_needs_enough_trades_and_clear_evidence():
+    L = learner()
+    assert lm.rule_news(news_trades(19, 2), L.values(), lm.knob_table(), {}) is None   # too few
+    assert lm.rule_news(news_trades(30, 15), L.values(), lm.knob_table(), {}) is None  # a coin flip: no change
+    no_opinion = news_trades(30, 0)
+    for t in no_opinion:
+        t["outcome"]["news_right"] = None                                               # news had no real opinion
+    assert lm.rule_news(no_opinion, L.values(), lm.knob_table(), {}) is None
+
+
+def test_news_rule_respects_its_bounds():
+    ks = lm.knob_table()
+    assert lm.rule_news(news_trades(30, 3), {"news_weight": 0.0}, ks, {}) is None       # already ignoring news
+    assert lm.rule_news(news_trades(30, 27), {"news_weight": 1.5}, ks, {}) is None      # already at the ceiling
+    assert lm.rule_news(news_trades(30, 3), {"news_weight": 0.1}, ks, {})["after"] == 0.0
+
+
+def test_news_rule_only_counts_trades_after_its_last_change():
+    ts = news_trades(30, 7)
+    since = {"news_weight": ts[20]["closed"]}
+    assert lm.rule_news(ts, learner().values(), lm.knob_table(), since) is None
+
+
+def test_learned_news_weight_scales_only_the_news_signal():
+    L = learner()
+    base = {"orb": 0.40, "vwap": 0.15, "gap": 0.05, "news": 0.25, "regime": 0.15}
+    assert L.signal_weights(base) is base                      # default: untouched
+    ts = news_trades(30, 7)
+    entry = L.review(ts, now=after(ts))
+    assert entry is not None and entry["knob"] == "news_weight"
+    w = L.signal_weights(base)
+    assert w["news"] == pytest.approx(0.1875) and w["orb"] == 0.40 and base["news"] == 0.25
+    assert L.fmt("news_weight", 0.75) == "0.75×"
+    assert any(r["key"] == "news_weight" and r["changed"] for r in L.settings())
+
+
+def test_news_weight_never_touches_risk_caps():
+    cfg = Config()
+    L = learner(cfg)
+    ts = news_trades(30, 7)
+    L.review(ts, now=after(ts))
+    assert dataclasses.asdict(cfg.risk) == dataclasses.asdict(Config().risk)

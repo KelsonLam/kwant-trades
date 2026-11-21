@@ -811,6 +811,8 @@ function postMortem(src, cause, right, mode = "paper") {
     unknown: `Lost ${moneyW(pnl)} (${exitTxt.toLowerCase()}). Not enough was recorded about this trade to say why; trades opened from now on record what is needed.`,
   }[cause];
   const closedToday = String(src.closed || "").slice(0, 10) === SESSION;
+  const newsDir = r2(Math.max(-1, Math.min(1, n("nw") * 0.6)));
+  const newsConf = r2(0.25 + Math.abs(n("nc")) * 0.2);
   const vAbs = Math.abs(n("v"));
   return {
     position_id: id, symbol, strategy, strategy_label: STRAT_LABEL[strategy] || strategy, mode, opened: src.opened, closed: src.closed,
@@ -828,6 +830,8 @@ function postMortem(src, cause, right, mode = "paper") {
       move_pct: move, move_sigma: r2(move / 0.009), direction_right: dir ? right : null, realized_vs_implied: r2(ratio * 0.95),
       realized_vs_model: r2(ratio), hold_minutes: holdMin, sessions_held: Math.max(1, Math.round(holdMin / 390)), cost_total: cost,
       gross_pnl: r2(pnl + cost), gap_sigma: gapSigma, best_post_pnl: best, recovered: cause === "stopped_recovered" ? true : null,
+      news_direction: newsDir, news_confidence: newsConf,
+      news_right: Math.abs(newsDir) * newsConf >= 0.05 && move ? (move > 0) === (newsDir > 0) : null,
     },
   };
 }
@@ -847,6 +851,7 @@ const KNOBS = [
   ["min_vol_edge", "Minimum volatility edge", "pct", "How cheap or expensive options must look before it trades volatility.", () => CONFIG.scan.min_vol_edge],
   ["drift_k", "Trust in the direction signal", "num", "How far the model shifts its forecast in the signal's direction.", () => 0.35],
   ["vol_shrink", "Trust in its own volatility forecast", "pct", "Weight on its own volatility forecast versus the options market's.", () => 0.5],
+  ["news_weight", "Weight on news", "mult", "How much recent headlines count in the direction call, compared with the setting in config.toml (0 = ignore news).", () => 1.0],
   ["stop_loss_pct", "Stop-loss", "pct", "Close a trade once it has lost this share of its maximum loss.", () => 0.35],
   ["take_profit_pct", "Take-profit", "pct", "Close a trade once it has made this share of its maximum profit.", () => 0.5],
   ["no_entry_before", "No new trades before", "time", "The earliest time of day a new trade may be opened (New York time).",
@@ -858,6 +863,7 @@ function fmtKnob(key, v) {
   const f = (knobOf(key) || [])[2];
   if (f === "time") { const m = Math.round(v); return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; }
   if (f === "pct") return `${Math.round(v * 100)}%`;
+  if (f === "mult") return `${Number(v).toFixed(2)}×`;
   return Number(v).toFixed(2);
 }
 const LEARN = {

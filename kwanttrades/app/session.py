@@ -719,7 +719,8 @@ class TradingSession:
         if news is not None:
             comps["news"] = news
         rec.components = comps
-        comp = combine(sym, list(comps.values()), cfg.signals.weights)
+        weights = self.learning.signal_weights(cfg.signals.weights) if self.learning is not None else cfg.signals.weights
+        comp = combine(sym, list(comps.values()), weights)
         rec.composite = comp
         try:
             d = data_now.date()

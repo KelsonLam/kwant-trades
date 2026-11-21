@@ -47,6 +47,8 @@ broker's practice account.**
 **Learning loop**
 - **Post-mortems:** every closed trade gets a plain-language cause, such as direction wrong, volatility
   under- or over-estimated, time decay, a gap, or stopped out and then recovered.
+- **News accountability:** every trade records the news sentiment at entry, and the weight on news rises or falls
+  with how often headlines actually called the stock's next move.
 - **Bounded self-tuning:** a few strategy settings may change, under strict limits:
   - nothing changes before 20 closed trades
   - at most one small step per review, with a cooldown between changes
@@ -241,8 +243,8 @@ overnight gap; or not enough recorded to tell (trades from before this feature).
 prices are still followed until expiry, so "stopped out, then it recovered" can be spotted.
 
 **What it may change.** Only these: minimum direction strength, minimum signal confidence, minimum volatility
-edge, trust in the direction signal, trust in its own volatility forecast, stop-loss, take-profit, the earliest
-entry time (only ever later), and a per-strategy weight (0 pauses a strategy). Loss caps, the daily loss limit,
+edge, trust in the direction signal, trust in its own volatility forecast, the weight on news, stop-loss,
+take-profit, the earliest entry time (only ever later), and a per-strategy weight (0 pauses a strategy). Loss caps, the daily loss limit,
 trade and position limits, portfolio risk, the defined-risk rule and the live-trading lock are not on that list.
 
 **How carefully.**
@@ -254,6 +256,11 @@ trade and position limits, portfolio risk, the defined-risk rule and the live-tr
   below zero across the whole 80% confidence range over at least 10 trades. Exit levels change only if replaying
   the recorded prices shows the new levels beat the old ones on the older two-thirds of trades, and are not worse
   on the most recent third.
+* **News is judged separately.** Each trade records what the headlines said at entry. Once at least 20 trades had a
+  real news opinion, the system checks how often the news leaned the way the stock then moved. If even the hopeful
+  end of the 90% range is below a coin flip, news counts for less (in steps of 0.25, down to ignoring it); if even
+  the cautious end beats a coin flip, it counts for more (up to 1.5 times the configured weight). News keeps being
+  recorded while its weight is low, so it can earn its weight back.
 * Every change is stored with its evidence and shown in the change history.
 * If the 15 trades after a change do clearly worse than the 15 before it, the change is undone automatically.
 * A paused strategy makes no new trades, so it stays paused until you undo the pause.
