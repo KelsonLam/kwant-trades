@@ -1,10 +1,96 @@
 # Kwant Trades
 
-Kwant Trades looks at the option prices of liquid US stocks and ETFs (SPY, QQQ, AAPL and so on), asks
-"is anything priced wrongly, and does the day's price action point a direction?", and builds simple
-**defined-risk** option trades (you can never lose more than the trade's stated maximum loss) when the
-numbers say the expected value is positive. It can only *suggest* trades, *pretend* to trade, or
-(if you deliberately switch it on) place real orders through a broker. Every order passes a risk gate first.
+**An options research and paper-trading system that finds mispriced US equity options with quantitative
+volatility models, combines them with intraday price-action signals, and trades defined-risk spreads behind a
+strict risk gate. It learns from its own losing trades and has to earn its way from simulation to a real
+broker's practice account.**
+
+![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
+![Tests](https://img.shields.io/badge/tests-552%20passing-2ea44f)
+![Dependencies](https://img.shields.io/badge/frontend-no%20frameworks-informational)
+
+| Home | Trade ideas | Portfolio | Learning from losses |
+|---|---|---|---|
+| ![Home screen](docs/screenshots/home.png) | ![Trade ideas](docs/screenshots/ideas.png) | ![Portfolio](docs/screenshots/portfolio.png) | ![Learning](docs/screenshots/learning.png) |
+
+<sub>Screens from the built-in demo mode (simulated data). The dashboard is a mobile-first web app that installs to a phone's home screen.</sub>
+
+## Highlights
+
+**Quantitative pricing**
+- **Volatility surface:** an SVI fit for each expiry, with Durrleman no-arbitrage checks. American options are
+  priced with a Leisen-Reimer binomial tree.
+- **Volatility forecasting:** a blend of EWMA, GARCH(1,1), HAR-RV and Yang-Zhang estimators, compared against
+  the market's implied volatility.
+- **Mispricing scan:** each option is compared with a local fair-volatility estimate built from its
+  neighbouring strikes, with noise scaling and stale-quote rejection. On SPY this cut false flags from 532 to 0.
+  It also checks put-call parity, butterfly spreads and calendar spreads.
+- **Skew-aware expected value:** a Breeden-Litzenberger risk-neutral density, mapped to a physical
+  distribution on a trading-session variance clock. This replaced a symmetric lognormal, which was biased
+  towards selling puts.
+
+**Day-trading signals**
+- Built from scratch: 15-minute opening-range breakout, VWAP trend, gap continuation or fade, a news-sentiment
+  lexicon, and a market-regime filter (SPY trend, VIX level and VIX term structure).
+
+**Risk and execution**
+- **Defined-risk structures only:** verticals, iron condors, and long calls, puts and straddles.
+- **Sizing:** fractional Kelly, capped by a per-trade risk budget.
+- **Risk gate:** about a dozen checks before every order, all journaled with reasons:
+  - loss caps: per-trade loss and the daily loss limit, with a kill switch
+  - exposure: open positions, portfolio risk, per-symbol cap, and enough cash
+  - trade rules: minimum reward to risk, the entry window, and the pattern-day-trader guard
+- **Brokers:** a paper simulator with modelled fills and fees, plus an Alpaca adapter that sends multi-leg orders.
+
+**Learning loop**
+- **Post-mortems:** every closed trade gets a plain-language cause, such as direction wrong, volatility
+  under- or over-estimated, time decay, a gap, or stopped out and then recovered.
+- **Bounded self-tuning:** a few strategy settings may change, under strict limits:
+  - nothing changes before 20 closed trades
+  - at most one small step per review, with a cooldown between changes
+  - each change needs a statistical test and a walk-forward check to pass
+  - a change is undone automatically if later trades do worse
+  - risk limits are never loosened
+- **Graduation:** the system moves from simulation to Alpaca paper trading only after passing out-of-sample
+  checks: profit factor, drawdown, profitable weeks, a confidence bound on edge, and enough fresh trades
+  since the last change. Real-money trading is never switched on automatically.
+
+**Engineering**
+- **Size and tests:** about 14k lines of Python and 5k of vanilla JavaScript, with 552 tests covering pricing,
+  signals, risk, learning, the HTTP server and auth.
+- **Frontend:** an iOS-style single-page app with no frameworks, no build step, no CDNs and a strict Content
+  Security Policy.
+- **Server:** stdlib only. Password login with lockouts, an optional Tailscale-only bind for phone access,
+  and an installable PWA.
+- **Unattended running:** a Windows Task Scheduler launcher, plus a keep-awake that is held only during
+  market hours.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    D[Market data<br/>CBOE via OpenBB + Yahoo<br/>cross-checked] --> Q[Quant models<br/>SVI surface · vol forecast<br/>mispricing scan]
+    D --> S[Intraday signals<br/>ORB · VWAP · gap<br/>news · regime]
+    Q --> St[Strategy builder<br/>defined-risk structures<br/>skew-aware EV]
+    S --> St
+    St --> R{Risk gate<br/>+ Kelly sizing}
+    R -->|pass| B[Broker<br/>paper sim · Alpaca paper]
+    R -->|block| J[(Journal<br/>SQLite)]
+    B --> J
+    J --> L[Learning<br/>post-mortems · bounded tuning<br/>graduation]
+    L -.->|adjusted settings| St
+    J --> W[Web dashboard<br/>mobile PWA]
+```
+
+## Try the demo
+
+```bash
+python -m pip install -r requirements.txt
+python -m kwanttrades web
+```
+
+Then open <http://127.0.0.1:8787/?demo=1>. Demo mode runs entirely in the browser with simulated
+quotes, so it needs no API keys, no account and no password.
 
 > **Not financial advice.** Kwant Trades is software, not an advisor. It does not guarantee profit and
 > most of what it models can be wrong. Options can lose their whole value quickly. Never risk money
@@ -34,9 +120,6 @@ python -m kwanttrades record --every 300            # save real option chains to
 python -m kwanttrades web                           # local dashboard on http://127.0.0.1:8787
 python -m kwanttrades --help
 ```
-
-The web dashboard (`python -m kwanttrades web`) is being built separately; it needs the optional
-`fastapi` and `uvicorn` packages.
 
 Optional: copy `config.example.toml` to `config.toml` to change settings, and `.env.example` to
 `.env` to add keys. You need neither to start.
