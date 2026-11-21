@@ -27,7 +27,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
       - name: Point the install manifest at the site's subfolder
-        run: sed -i 's#"start_url": "/"#"start_url": "./"#; s#"scope": "/"#"scope": "./"#' kwanttrades/web/static/manifest.webmanifest
+        run: |
+          sed -i 's#"start_url": "/"#"start_url": "./"#; s#"scope": "/"#"scope": "./"#' kwanttrades/web/static/manifest.webmanifest
       - uses: actions/upload-pages-artifact@v3
         with:
           path: kwanttrades/web/static
