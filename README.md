@@ -164,7 +164,8 @@ there; there is no command-line switch for them.
   choose *which* strikes to buy and sell.
 * **Cross-checked data.** A "mispriced" option seen in only one data feed is usually a bad quote. With
   OpenBB installed, Kwant Trades fetches chains from two independent free sources (CBOE through OpenBB, and
-  Yahoo Finance) and only trusts quotes both agree on.
+  Yahoo Finance) and only trusts quotes both agree on. If CBOE is unavailable, it falls back to Yahoo alone
+  rather than skipping the day.
 * **Opening-range breakout (ORB).** The high and low of the first 15 minutes of trading form a range. A
   5-minute bar closing above (below) it suggests an up (down) day. The signal is stronger with heavy opening
   volume and weaker if the move is already stretched, and it is cancelled if price falls back into the range.

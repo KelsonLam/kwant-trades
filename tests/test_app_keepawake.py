@@ -13,8 +13,9 @@ def at(y, m, d, hh, mm):
 # 2026-11-18 is a Wednesday (trading day); 2026-11-21 is a Saturday; 2026-11-26 is Thanksgiving.
 def test_window_on_a_trading_day():
     assert not should_stay_awake(at(2026, 11, 18, 8, 0), None)
-    assert not should_stay_awake(at(2026, 11, 18, 9, 9), None)
-    assert should_stay_awake(at(2026, 11, 18, 9, 10), None)      # 20 minutes before the open
+    assert not should_stay_awake(at(2026, 11, 18, 8, 59), None)
+    assert should_stay_awake(at(2026, 11, 18, 9, 0), None)       # 30 minutes before the open
+    assert should_stay_awake(at(2026, 11, 18, 9, 5), None)       # the scheduled wake-up time
     assert should_stay_awake(at(2026, 11, 18, 9, 35), None)      # opening range
     assert should_stay_awake(at(2026, 11, 18, 15, 59), None)
     assert not should_stay_awake(at(2026, 11, 18, 18, 0), at(2026, 11, 18, 15, 59))
@@ -33,7 +34,7 @@ def test_weekend_and_holiday_stay_asleep():
 
 def test_tick_sets_and_releases_the_flag():
     calls = []
-    now = {"t": at(2026, 11, 18, 9, 0)}
+    now = {"t": at(2026, 11, 18, 8, 50)}
     ka = KeepAwake(clock=lambda: now["t"], setter=lambda f: calls.append(f) or True)
     assert ka.tick() is False and calls == []
     now["t"] = at(2026, 11, 18, 9, 45)

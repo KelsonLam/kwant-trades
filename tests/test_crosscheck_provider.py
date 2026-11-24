@@ -170,9 +170,20 @@ def test_secondary_failure_or_empty_returns_primary_unchanged(secondary):
     assert rep["error"]
 
 
-def test_primary_failure_propagates():
-    with pytest.raises(RuntimeError):
-        CrossCheckedProvider(Prov(exc=RuntimeError("down")), Prov(C([]))).chain("SPY")
+@pytest.mark.parametrize("primary", [Prov(exc=RuntimeError("403 Forbidden")), Prov(C([])), Prov(None)])
+def test_primary_failure_falls_back_to_secondary_alone(primary):
+    sq = C([Q(100, 4.9, 5.0), Q(101, 4.0, 4.1)], spot=100.2)
+    x = CrossCheckedProvider(primary, Prov(sq))
+    out = x.chain("SPY", 0, 10)
+    assert out is sq
+    rep = x.last_report["SPY"]
+    assert rep["source"] == "secondary_only" and rep["n_secondary"] == 2 and rep["n_primary"] == 0
+    assert rep["error"].startswith("primary fetch failed")
+
+
+def test_both_feeds_failing_raises_the_secondary_error():
+    with pytest.raises(ValueError, match="yahoo down"):
+        CrossCheckedProvider(Prov(exc=RuntimeError("403")), Prov(exc=ValueError("yahoo down"))).chain("SPY")
 
 
 def test_report_contents_and_median():

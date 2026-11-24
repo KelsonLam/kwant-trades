@@ -21,7 +21,9 @@ log = logging.getLogger(__name__)
 ES_CONTINUOUS = 0x80000000
 ES_SYSTEM_REQUIRED = 0x00000001
 
-PRE_OPEN = timedelta(minutes=20)   # stay awake from 20 minutes before the open
+PRE_OPEN = timedelta(minutes=30)   # stay awake from 30 minutes before the open. The scheduled task wakes the PC
+                                   # at 09:05; Windows puts a timer-woken PC back to sleep after ~2 idle minutes
+                                   # unless something asks it not to, so the window must already be open then.
 LINGER = timedelta(minutes=15)     # and 15 minutes after the close, for end-of-day settlement
 
 
